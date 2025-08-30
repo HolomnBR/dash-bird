@@ -1,0 +1,75 @@
+### Teste da API de Configuração de Bases de Dados Firebird
+
+### 1. Listar bases de dados configuradas
+GET http://localhost:5175/api/DatabaseConfig/databases
+
+### 2. Adicionar nova base de dados TAVAGUA
+POST http://localhost:5175/api/DatabaseConfig/databases
+Content-Type: application/json
+
+{
+  "name": "TAVAGUA",
+  "server": "localhost",
+  "database": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdApi\\dbs\\TAVAGUA.FDB",
+  "username": "SYSDBA",
+  "password": "masterkey",
+  "port": 3050,
+  "charset": "UTF8"
+}
+
+### 3. Adicionar outra base de dados de exemplo
+POST http://localhost:5175/api/DatabaseConfig/databases
+Content-Type: application/json
+
+{
+  "name": "ExemploDB",
+  "server": "localhost",
+  "database": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdApi\\dbs\\EXEMPLO.FDB",
+  "username": "SYSDBA",
+  "password": "masterkey",
+  "port": 3050,
+  "charset": "UTF8"
+}
+
+### 4. Listar bases novamente para ver as adicionadas
+GET http://localhost:5175/api/DatabaseConfig/databases
+
+### 5. Testar conexão com a primeira base (substitua {id} pelo GUID retornado)
+GET http://localhost:5175/api/DatabaseConfig/databases/{id}/test-connection
+
+### 6. Listar tabelas da primeira base
+GET http://localhost:5175/api/DatabaseConfig/databases/{id}/tables
+
+### 6.1 Obter schema de tabelas específicas
+POST http://localhost:5175/api/DatabaseConfig/databases/{id}/table-schema
+Content-Type: application/json
+
+{
+  "tableNames": ["EMPLOYEE", "DEPARTMENT"]
+}
+
+### 7. Obter configuração específica de uma base
+GET http://localhost:5175/api/DatabaseConfig/databases/{id}
+
+### 8. Atualizar configuração de uma base
+PUT http://localhost:5175/api/DatabaseConfig/databases/{id}
+Content-Type: application/json
+
+{
+  "name": "TAVAGUA_Atualizada",
+  "server": "localhost",
+  "database": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdApi\\dbs\\TAVAGUA.FDB",
+  "username": "SYSDBA",
+  "password": "masterkey",
+  "port": 3050,
+  "charset": "UTF8"
+}
+
+### 9. Remover uma base de dados (substitua {id} pelo GUID)
+DELETE http://localhost:5175/api/DatabaseConfig/databases/{id}
+
+### 10. Verificar se foi removida
+GET http://localhost:5175/api/DatabaseConfig/databases
+
+### 11. Testar endpoint legado (deve funcionar com configuração padrão)
+GET http://localhost:5175/api/Firebird/test-connection

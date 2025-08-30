@@ -1,0 +1,464 @@
+using FirebirdApi.Models;
+using System.Text.Json;
+
+namespace FirebirdApi.Services
+{
+    public interface IDatabaseConfigService
+    {
+        Task<List<DatabaseConfig>> GetAllDatabasesAsync();
+        Task<DatabaseConfig?> GetDatabaseByIdAsync(string id);
+        Task<DatabaseConfig> AddDatabaseAsync(DatabaseConfig config);
+        Task<bool> RemoveDatabaseAsync(string id);
+        Task<bool> UpdateDatabaseAsync(DatabaseConfig config);
+        Task<bool> TestConnectionAsync(string id);
+        Task<List<TableInfo>> GetTablesAsync(string id);
+        Task<List<TableSchema>> GetTableSchemaAsync(string id, IEnumerable<string> tableNames);
+        Task<DatabaseConfig?> GetDefaultDatabaseAsync();
+        Task<bool> SetDefaultDatabaseAsync(string id);
+        Task<ProjectConfig> GetProjectConfigAsync();
+    }
+
+    public class DatabaseConfigService : IDatabaseConfigService
+    {
+        private readonly string _baseConfigFilePath;
+        private readonly string _configFilePath;
+        private readonly List<DatabaseConfig> _databases;
+        private ProjectConfig _projectConfig;
+
+        public DatabaseConfigService()
+        {
+            _baseConfigFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+            _configFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "database-configs.json");
+            _projectConfig = LoadProjectConfig();
+            _databases = LoadDatabases();
+        }
+
+        private ProjectConfig LoadProjectConfig()
+        {
+            try
+            {
+                if (File.Exists(_baseConfigFilePath))
+                {
+                    var json = File.ReadAllText(_baseConfigFilePath);
+                    var config = JsonSerializer.Deserialize<ProjectConfig>(json);
+                    return config ?? new ProjectConfig();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao carregar configuração base: {ex.Message}");
+            }
+            return new ProjectConfig();
+        }
+
+        private List<DatabaseConfig> LoadDatabases()
+        {
+            var databases = new List<DatabaseConfig>();
+
+            // Primeiro, carregar do arquivo base (config.json)
+            if (_projectConfig.Databases.Any())
+            {
+                databases.AddRange(_projectConfig.Databases);
+            }
+
+            // Depois, carregar do arquivo dinâmico (database-configs.json)
+            try
+            {
+                if (File.Exists(_configFilePath))
+                {
+                    var json = File.ReadAllText(_configFilePath);
+                    var dynamicConfigs = JsonSerializer.Deserialize<List<DatabaseConfig>>(json);
+                    if (dynamicConfigs != null)
+                    {
+                        // Adicionar apenas configurações que não existem no arquivo base
+                        foreach (var config in dynamicConfigs)
+                        {
+                            if (!databases.Any(db => db.Id == config.Id))
+                            {
+                                databases.Add(config);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao carregar configurações dinâmicas: {ex.Message}");
+            }
+
+            return databases;
+        }
+
+        private async Task SaveDatabasesAsync()
+        {
+            try
+            {
+                // Salvar apenas as configurações dinâmicas (não as do arquivo base)
+                var dynamicConfigs = _databases.Where(db => db.Id != "default").ToList();
+                var json = JsonSerializer.Serialize(dynamicConfigs, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(_configFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao salvar configurações: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<List<DatabaseConfig>> GetAllDatabasesAsync()
+        {
+            return await Task.FromResult(_databases.Where(db => db.IsActive).ToList());
+        }
+
+        public async Task<DatabaseConfig?> GetDatabaseByIdAsync(string id)
+        {
+            return await Task.FromResult(_databases.FirstOrDefault(db => db.Id == id && db.IsActive));
+        }
+
+        public async Task<DatabaseConfig?> GetDefaultDatabaseAsync()
+        {
+            var defaultId = _projectConfig.Settings.DefaultDatabaseId;
+            return await GetDatabaseByIdAsync(defaultId);
+        }
+
+        public async Task<bool> SetDefaultDatabaseAsync(string id)
+        {
+            var database = await GetDatabaseByIdAsync(id);
+            if (database != null)
+            {
+                _projectConfig.Settings.DefaultDatabaseId = id;
+                await SaveProjectConfigAsync();
+                return true;
+            }
+            return false;
+        }
+
+        public async Task<ProjectConfig> GetProjectConfigAsync()
+        {
+            return await Task.FromResult(_projectConfig);
+        }
+
+        public async Task<DatabaseConfig> AddDatabaseAsync(DatabaseConfig config)
+        {
+            // Gerar GUID único se não for a base padrão
+            if (config.Id != "default")
+            {
+                config.Id = Guid.NewGuid().ToString();
+            }
+            
+            config.CreatedAt = DateTime.UtcNow;
+            config.IsActive = true;
+
+            // Verificar se já existe uma configuração com o mesmo ID
+            var existingConfig = _databases.FirstOrDefault(db => db.Id == config.Id);
+            if (existingConfig != null)
+            {
+                // Atualizar a configuração existente
+                var index = _databases.IndexOf(existingConfig);
+                _databases[index] = config;
+            }
+            else
+            {
+                _databases.Add(config);
+            }
+
+            await SaveDatabasesAsync();
+            return config;
+        }
+
+        public async Task<bool> RemoveDatabaseAsync(string id)
+        {
+            // Não permitir remover a base padrão
+            if (id == "default")
+            {
+                return false;
+            }
+
+            var database = _databases.FirstOrDefault(db => db.Id == id);
+            if (database != null)
+            {
+                database.IsActive = false;
+                await SaveDatabasesAsync();
+                return true;
+            }
+            return false;
+        }
+
+        public async Task<bool> UpdateDatabaseAsync(DatabaseConfig config)
+        {
+            var existingDatabase = _databases.FirstOrDefault(db => db.Id == config.Id);
+            if (existingDatabase != null)
+            {
+                var index = _databases.IndexOf(existingDatabase);
+                _databases[index] = config;
+                await SaveDatabasesAsync();
+                return true;
+            }
+            return false;
+        }
+
+        public async Task<bool> TestConnectionAsync(string id)
+        {
+            var database = await GetDatabaseByIdAsync(id);
+            if (database == null)
+                return false;
+
+            try
+            {
+                using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+                await connection.OpenAsync();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public async Task<List<TableInfo>> GetTablesAsync(string id)
+        {
+            var database = await GetDatabaseByIdAsync(id);
+            if (database == null)
+                return new List<TableInfo>();
+
+            try
+            {
+                using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+                await connection.OpenAsync();
+
+                var tables = new List<TableInfo>();
+                var query = @"
+                    SELECT 
+                        r.rdb$relation_name as TableName,
+                        r.rdb$owner_name as Schema,
+                        r.rdb$relation_type as TableType,
+                        r.rdb$description as Description
+                    FROM rdb$relations r
+                    WHERE r.rdb$view_blr is null 
+                    AND (r.rdb$system_flag is null or r.rdb$system_flag = 0)
+                    ORDER BY r.rdb$relation_name";
+
+                using var command = new FirebirdSql.Data.FirebirdClient.FbCommand(query, connection);
+                using var reader = await command.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    tables.Add(new TableInfo
+                    {
+                        TableName = reader["TableName"]?.ToString()?.Trim() ?? "",
+                        Schema = reader["Schema"]?.ToString()?.Trim() ?? "",
+                        TableType = GetTableType(reader["TableType"]?.ToString() ?? ""),
+                        Description = reader["Description"]?.ToString()?.Trim() ?? ""
+                    });
+                }
+
+                return tables;
+            }
+            catch
+            {
+                return new List<TableInfo>();
+            }
+        }
+
+		public async Task<List<TableSchema>> GetTableSchemaAsync(string id, IEnumerable<string> tableNames)
+		{
+			var database = await GetDatabaseByIdAsync(id);
+			if (database == null)
+				return new List<TableSchema>();
+
+			var requestedTables = (tableNames ?? Array.Empty<string>())
+				.Where(n => !string.IsNullOrWhiteSpace(n))
+				.Select(n => n.Trim().ToUpperInvariant())
+				.Distinct()
+				.ToList();
+
+			if (!requestedTables.Any())
+				return new List<TableSchema>();
+
+			var result = new List<TableSchema>();
+
+			try
+			{
+				using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+				await connection.OpenAsync();
+
+				foreach (var table in requestedTables)
+				{
+					var columns = await LoadColumnsAsync(connection, table);
+					var pkColumns = await LoadPrimaryKeyColumnsAsync(connection, table);
+
+					foreach (var column in columns)
+					{
+						column.IsPrimaryKey = pkColumns.Contains(column.ColumnName);
+					}
+
+					result.Add(new TableSchema
+					{
+						TableName = table,
+						Columns = columns
+					});
+				}
+
+				return result;
+			}
+			catch
+			{
+				return new List<TableSchema>();
+			}
+		}
+
+		private async Task<List<ColumnSchema>> LoadColumnsAsync(FirebirdSql.Data.FirebirdClient.FbConnection connection, string tableName)
+		{
+			var columns = new List<ColumnSchema>();
+			var query = @"
+				SELECT
+					rf.rdb$field_name AS ColumnName,
+					f.rdb$field_type AS FieldType,
+					f.rdb$field_sub_type AS FieldSubType,
+					f.rdb$field_length AS FieldLength,
+					f.rdb$field_precision AS FieldPrecision,
+					f.rdb$field_scale AS FieldScale,
+					rf.rdb$null_flag AS NullFlag,
+					rf.rdb$default_source AS DefaultSource,
+					rf.rdb$description AS Description
+				FROM rdb$relation_fields rf
+				JOIN rdb$fields f ON rf.rdb$field_source = f.rdb$field_name
+				WHERE rf.rdb$relation_name = @table
+				ORDER BY rf.rdb$field_position";
+
+			using var cmd = new FirebirdSql.Data.FirebirdClient.FbCommand(query, connection);
+			cmd.Parameters.Add("@table", FirebirdSql.Data.FirebirdClient.FbDbType.Char).Value = tableName;
+			using var reader = await cmd.ExecuteReaderAsync();
+			while (await reader.ReadAsync())
+			{
+				var fieldType = reader["FieldType"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["FieldType"]);
+				var fieldSubType = reader["FieldSubType"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["FieldSubType"]);
+				var length = reader["FieldLength"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["FieldLength"]);
+				var precision = reader["FieldPrecision"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["FieldPrecision"]);
+				var scale = reader["FieldScale"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["FieldScale"]);
+
+				columns.Add(new ColumnSchema
+				{
+					ColumnName = reader["ColumnName"]?.ToString()?.Trim() ?? string.Empty,
+					DataType = MapFieldType(fieldType, fieldSubType, precision, scale, length),
+					Length = length,
+					Precision = precision,
+					Scale = scale,
+					IsNullable = reader["NullFlag"] == DBNull.Value,
+					Default = CleanDefaultSource(reader["DefaultSource"]?.ToString()),
+					Description = reader["Description"]?.ToString()?.Trim() ?? string.Empty
+				});
+			}
+
+			return columns;
+		}
+
+		private async Task<HashSet<string>> LoadPrimaryKeyColumnsAsync(FirebirdSql.Data.FirebirdClient.FbConnection connection, string tableName)
+		{
+			var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			var query = @"
+				SELECT seg.rdb$field_name AS ColumnName
+				FROM rdb$relation_constraints rc
+				JOIN rdb$index_segments seg ON seg.rdb$index_name = rc.rdb$index_name
+				WHERE rc.rdb$relation_name = @table AND rc.rdb$constraint_type = 'PRIMARY KEY'
+				ORDER BY seg.rdb$field_position";
+
+			using var cmd = new FirebirdSql.Data.FirebirdClient.FbCommand(query, connection);
+			cmd.Parameters.Add("@table", FirebirdSql.Data.FirebirdClient.FbDbType.Char).Value = tableName;
+			using var reader = await cmd.ExecuteReaderAsync();
+			while (await reader.ReadAsync())
+			{
+				var columnName = reader["ColumnName"]?.ToString()?.Trim();
+				if (!string.IsNullOrEmpty(columnName))
+					set.Add(columnName);
+			}
+			return set;
+		}
+
+		private string MapFieldType(int? fieldType, int? fieldSubType, int? precision, int? scale, int? length)
+		{
+			if (fieldType == null)
+				return string.Empty;
+
+			switch (fieldType.Value)
+			{
+				case 7: // SMALLINT
+					return "SMALLINT";
+				case 8: // INTEGER
+					return "INTEGER";
+				case 16: // BIGINT / NUMERIC/DECIMAL
+					if (fieldSubType.HasValue && (fieldSubType.Value == 1 || fieldSubType.Value == 2))
+					{
+						var p = precision ?? 18;
+						var s = scale.HasValue ? Math.Abs(scale.Value) : 0;
+						var t = fieldSubType.Value == 1 ? "NUMERIC" : "DECIMAL";
+						return $"{t}({p},{s})";
+					}
+					return "BIGINT";
+				case 10: // FLOAT
+					return "FLOAT";
+				case 27: // DOUBLE
+					return "DOUBLE PRECISION";
+				case 14: // CHAR
+					return length.HasValue ? $"CHAR({length.Value})" : "CHAR";
+				case 37: // VARCHAR
+					return length.HasValue ? $"VARCHAR({length.Value})" : "VARCHAR";
+				case 261: // BLOB
+					return "BLOB";
+				case 12: // DATE
+					return "DATE";
+				case 13: // TIME
+					return "TIME";
+				case 35: // TIMESTAMP
+					return "TIMESTAMP";
+				default:
+					return "UNKNOWN";
+			}
+		}
+
+		private string CleanDefaultSource(string? defaultSource)
+		{
+			if (string.IsNullOrWhiteSpace(defaultSource)) return string.Empty;
+			var text = defaultSource.Trim();
+			if (text.StartsWith("DEFAULT", StringComparison.OrdinalIgnoreCase))
+			{
+				text = text.Substring(7).Trim();
+			}
+			return text;
+		}
+
+        private async Task SaveProjectConfigAsync()
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(_projectConfig, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(_baseConfigFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao salvar configuração do projeto: {ex.Message}");
+            }
+        }
+
+        private string GetTableType(string type)
+        {
+            return type switch
+            {
+                "0" => "Table",
+                "1" => "View",
+                _ => "Unknown"
+            };
+        }
+
+        private string BuildConnectionString(DatabaseConfig config)
+        {
+            return $"Server={config.Server};" +
+                   $"Port={config.Port};" +
+                   $"Database={config.Database};" +
+                   $"User={config.Username};" +
+                   $"Password={config.Password};" +
+                   $"Charset={config.Charset};" +
+                   "Dialect=3;";
+        }
+    }
+}

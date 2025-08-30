@@ -1,0 +1,130 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>FirebirdApi</name>
+    </assembly>
+    <members>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.ListDatabases">
+            <summary>
+            Lista todas as bases de dados configuradas
+            </summary>
+            <remarks>Retorna apenas bases ativas. Bases removidas (soft delete) não aparecem.</remarks>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.AddDatabase(FirebirdApi.Models.AddDatabaseRequest)">
+            <summary>
+            Adiciona uma nova base de dados
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.RemoveDatabase(System.String)">
+            <summary>
+            Remove uma base de dados (apenas da configuração)
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.TestConnection(System.String)">
+            <summary>
+            Testa a conexão com uma base de dados específica
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.ListTables(System.String)">
+            <summary>
+            Lista todas as tabelas de uma base de dados específica
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.GetTableSchema(System.String,FirebirdApi.Controllers.TableSchemaRequest)">
+            <summary>
+            Retorna o schema (colunas, tipos, PK) de uma ou mais tabelas
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.UpdateDatabase(System.String,FirebirdApi.Models.DatabaseConfig)">
+            <summary>
+            Atualiza uma configuração de base de dados existente
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.GetDatabase(System.String)">
+            <summary>
+            Obtém uma configuração de base de dados específica
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.GetDefaultDatabase">
+            <summary>
+            Obtém a base de dados padrão
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.SetDefaultDatabase(FirebirdApi.Controllers.SetDefaultDatabaseRequest)">
+            <summary>
+            Define uma base de dados como padrão
+            </summary>
+        </member>
+        <member name="M:FirebirdApi.Controllers.DatabaseConfigController.GetProjectConfig">
+            <summary>
+            Obtém as configurações do projeto
+            </summary>
+        </member>
+        <member name="P:FirebirdApi.Controllers.SetDefaultDatabaseRequest.DatabaseId">
+            <summary>ID da base a ser definida como padrão.</summary>
+        </member>
+        <member name="P:FirebirdApi.Controllers.TableSchemaRequest.TableNames">
+            <summary>Lista de nomes de tabelas. Ex.: ["USERS", "ORDERS"]</summary>
+        </member>
+        <member name="P:FirebirdApi.Controllers.QueryRequest.Query">
+            <summary>Comando SQL a ser executado.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Id">
+            <summary>Identificador único da base de dados.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Name">
+            <summary>Nome amigável da base de dados.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Server">
+            <summary>Servidor Firebird (ex.: localhost).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Database">
+            <summary>Caminho para o arquivo .FDB. Aceita '/' ou \\.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Username">
+            <summary>Usuário do banco.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Password">
+            <summary>Senha do banco.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Port">
+            <summary>Porta do servidor Firebird.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.Charset">
+            <summary>Charset da conexão (ex.: UTF8).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.CreatedAt">
+            <summary>Data de criação do registro.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.DatabaseConfig.IsActive">
+            <summary>Indica se a configuração está ativa (soft delete).</summary>
+        </member>
+        <member name="T:FirebirdApi.Models.AddDatabaseRequest">
+            <summary>
+            Modelo para request de adição de banco de dados
+            Permite adicionar apenas os campos essenciais, preenchendo os demais automaticamente
+            </summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Name">
+            <summary>Nome amigável da base (opcional).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Database">
+            <summary>Caminho completo para o arquivo .FDB. Use '/' ou escape \\.</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Server">
+            <summary>Servidor (padrão: localhost).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Username">
+            <summary>Usuário (padrão: SYSDBA).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Password">
+            <summary>Senha (padrão: masterkey).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Port">
+            <summary>Porta (padrão: 3050).</summary>
+        </member>
+        <member name="P:FirebirdApi.Models.AddDatabaseRequest.Charset">
+            <summary>Charset (padrão: UTF8).</summary>
+        </member>
+    </members>
+</doc>

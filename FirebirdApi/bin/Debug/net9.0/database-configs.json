@@ -1,0 +1,26 @@
+[
+  {
+    "Id": "399217d2-0dff-4911-abca-cf289e276e02",
+    "Name": "db01",
+    "Server": "localhost",
+    "Database": "C:/Projetos/estudos/forti/dash/FirebirdApi/dbs/TAVAGUA.FDB",
+    "Username": "SYSDBA",
+    "Password": "masterkey",
+    "Port": 3050,
+    "Charset": "UTF8",
+    "CreatedAt": "2025-08-30T16:45:13.5638366Z",
+    "IsActive": true
+  },
+  {
+    "Id": "0e4f3b42-34c0-4d1e-bc93-04f5e4e95eba",
+    "Name": "db02",
+    "Server": "localhost",
+    "Database": "C:/Projetos/estudos/forti/dash/FirebirdApi/dbs/TAVAGUA.FDB",
+    "Username": "SYSDBA",
+    "Password": "masterkey",
+    "Port": 3050,
+    "Charset": "UTF8",
+    "CreatedAt": "2025-08-30T19:59:55.435288Z",
+    "IsActive": true
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "databases": [
+    {
+      "id": "default",
+      "name": "TAVAGUA",
+      "server": "localhost",
+      "database": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdApi\\dbs\\TAVAGUA.FDB",
+      "username": "SYSDBA",
+      "password": "masterkey",
+      "port": 3050,
+      "charset": "UTF8",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "isActive": true
+    }
+  ],
+  "settings": {
+    "defaultDatabaseId": "default",
+    "autoLoadFromConfig": true,
+    "configFilePath": "database-configs.json"
+  }
+}

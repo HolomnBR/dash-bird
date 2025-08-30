@@ -1,0 +1,5 @@
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Release\net9.0\FirebirdTest.csproj.AssemblyReference.cache
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Release\net9.0\FirebirdTest.GeneratedMSBuildEditorConfig.editorconfig
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Release\net9.0\FirebirdTest.AssemblyInfoInputs.cache
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Release\net9.0\FirebirdTest.AssemblyInfo.cs
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Release\net9.0\FirebirdTest.csproj.CoreCompileInputs.cache

@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Hash": "bx3kflLK10vvFnOMNO7QFPeIH6t9FGGjjkfo1LIqzmc=",
+  "Source": "FirebirdApi",
+  "BasePath": "_content/FirebirdApi",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": [],
+  "Endpoints": []
+}

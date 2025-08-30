@@ -1,0 +1,80 @@
+using FirebirdApi.Models;
+using FirebirdApi.Services;
+using Microsoft.OpenApi.Models;
+using System.Reflection;
+// removed Filters due to incompatibility
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+builder.Services.AddControllers(options =>
+{
+    // Desabilitar validação automática de modelo para permitir mais flexibilidade
+    options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
+});
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Firebird API",
+        Version = "v1",
+        Description = "API para gerenciamento de bases de dados Firebird (configuração múltipla e operações legadas).",
+        Contact = new OpenApiContact
+        {
+            Name = "Projeto FirebirdApi"
+        }
+    });
+
+    // Incluir comentários XML para documentação enriquecida
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        options.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+    }
+
+    // Ativar anotações via atributos
+    options.EnableAnnotations();
+});
+
+
+// CORS: permitir chamadas do app desktop (Vite dev server)
+const string CorsPolicyName = "AllowDesktopDev";
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(name: CorsPolicyName, policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:5173",
+                "http://127.0.0.1:5173"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+            // .AllowCredentials(); // habilite se precisar enviar cookies/autenticação
+    });
+});
+
+
+// Registrar o serviço de configuração de bases de dados
+builder.Services.AddSingleton<IDatabaseConfigService, DatabaseConfigService>();
+
+// Registrar o serviço Firebird (será configurado dinamicamente)
+builder.Services.AddScoped<IFirebirdService, FirebirdService>();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Firebird API v1");
+    c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+});
+
+app.UseHttpsRedirection();
+app.UseCors(CorsPolicyName);
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();

@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "jq/DibTyrZE=",
+  "success": true,
+  "projectFilePath": "C:\\Projetos\\estudos\\forti\\dash\\FireBirdTest\\FirebirdTest.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Lucas Argate\\.nuget\\packages\\firebirdsql.data.firebirdclient\\10.3.3\\firebirdsql.data.firebirdclient.10.3.3.nupkg.sha512"
+  ],
+  "logs": []
+}

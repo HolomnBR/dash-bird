@@ -1,0 +1,17 @@
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.csproj.AssemblyReference.cache
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.GeneratedMSBuildEditorConfig.editorconfig
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.AssemblyInfoInputs.cache
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.AssemblyInfo.cs
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.csproj.CoreCompileInputs.cache
+C:\Projetos\estudos\forti\dash\FirebirdTest\bin\Debug\net9.0\FirebirdTest.exe
+C:\Projetos\estudos\forti\dash\FirebirdTest\bin\Debug\net9.0\FirebirdTest.deps.json
+C:\Projetos\estudos\forti\dash\FirebirdTest\bin\Debug\net9.0\FirebirdTest.runtimeconfig.json
+C:\Projetos\estudos\forti\dash\FirebirdTest\bin\Debug\net9.0\FirebirdTest.dll
+C:\Projetos\estudos\forti\dash\FirebirdTest\bin\Debug\net9.0\FirebirdTest.pdb
+C:\Projetos\estudos\forti\dash\FirebirdTest\bin\Debug\net9.0\FirebirdSql.Data.FirebirdClient.dll
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\Firebird.9F330BCF.Up2Date
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.dll
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\refint\FirebirdTest.dll
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.pdb
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\FirebirdTest.genruntimeconfig.cache
+C:\Projetos\estudos\forti\dash\FirebirdTest\obj\Debug\net9.0\ref\FirebirdTest.dll
