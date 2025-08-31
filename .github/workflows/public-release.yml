@@ -1,18 +1,21 @@
-name: Build Desktop (Windows)
+name: Create Public Release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+      release_notes:
+        description: 'Release notes'
+        required: false
+        default: '🚀 Build automático do DashBird para Windows'
 
 jobs:
-  build-windows:
+  create-release:
     runs-on: windows-latest
-
-    defaults:
-      run:
-        working-directory: desktop
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,29 +36,20 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
       - name: Install dependencies
+        working-directory: desktop
         run: pnpm install --frozen-lockfile
 
       - name: Build API
+        working-directory: desktop
         run: pnpm run build:api
 
       - name: Build Electron
+        working-directory: desktop
         run: pnpm run build:electron
 
       - name: Build Windows artifacts
+        working-directory: desktop
         run: pnpm run build:windows
 
       - name: Create Release
@@ -64,51 +58,47 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ github.run_number }}
-          release_name: DashBird Windows Build v${{ github.run_number }}
+          tag_name: v${{ github.event.inputs.version }}
+          release_name: DashBird Windows v${{ github.event.inputs.version }}
           body: |
-            🚀 Build automático do DashBird para Windows
+            ${{ github.event.inputs.release_notes }}
             
-            **Build Number:** ${{ github.run_number }}
+            **Version:** ${{ github.event.inputs.version }}
+            **Build Date:** ${{ github.event.head_commit.timestamp }}
             **Commit:** ${{ github.sha }}
-            **Branch:** ${{ github.ref_name }}
             
-            📦 **Artefatos incluídos:**
-            - Instalador NSIS (.exe)
+            📦 **Downloads disponíveis:**
+            - Instalador Windows (.exe)
             - Versão portátil (.exe)
-            - Arquivos compactados (.zip, .7z)
-            
-            ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
           draft: false
           prerelease: false
 
-      - name: Upload Release Assets
+      - name: Upload Windows Installer
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: desktop/release/*.exe
-          asset_name: DashBird-Windows-v${{ github.run_number }}.exe
+          asset_name: DashBird-Windows-v${{ github.event.inputs.version }}.exe
           asset_content_type: application/octet-stream
 
-      - name: Upload Release Assets (Portable)
+      - name: Upload Portable Version
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: desktop/release/*.exe
-          asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
+          asset_name: DashBird-Windows-Portable-v${{ github.event.inputs.version }}.exe
           asset_content_type: application/octet-stream
 
-      - name: Upload artifacts (Backup)
-        uses: actions/upload-artifact@v4
+      - name: Upload ZIP Archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: desktop-windows
-          path: |
-            desktop/release/*.exe
-            desktop/release/*.zip
-            desktop/release/*.7z
-            desktop/release/*.nsis.exe
-
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: desktop/release/*.zip
+          asset_name: DashBird-Windows-v${{ github.event.inputs.version }}.zip
+          asset_content_type: application/zip
