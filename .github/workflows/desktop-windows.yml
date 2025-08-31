@@ -67,7 +67,6 @@ jobs:
       - name: List generated files
         run: |
           echo "📁 Arquivos gerados em desktop/release:"
-          ls -la desktop/release/
           echo "📁 Conteúdo da pasta release (Windows):"
           dir desktop\release
           echo "🔍 Procurando por arquivos específicos:"
@@ -77,6 +76,8 @@ jobs:
           Get-ChildItem "desktop\release\*.zip" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
           echo "Arquivos 7z:"
           Get-ChildItem "desktop\release\*.7z" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
+          echo "Todos os arquivos na pasta release:"
+          Get-ChildItem "desktop\release" | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes) - $($_.Extension)" }
 
       - name: Create Release
         id: create_release
