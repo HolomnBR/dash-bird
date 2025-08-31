@@ -41,7 +41,7 @@
           "buildMultiTargeting/Microsoft.Extensions.ApiDescription.Server.targets": {}
         }
       },
-      "Microsoft.NET.ILLink.Tasks/9.0.1": {
+      "Microsoft.NET.ILLink.Tasks/9.0.8": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
@@ -183,7 +183,7 @@
           "buildMultiTargeting/Microsoft.Extensions.ApiDescription.Server.targets": {}
         }
       },
-      "Microsoft.NET.ILLink.Tasks/9.0.1": {
+      "Microsoft.NET.ILLink.Tasks/9.0.8": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
@@ -581,10 +581,10 @@
         "tools/netcoreapp2.1/System.Diagnostics.DiagnosticSource.dll"
       ]
     },
-    "Microsoft.NET.ILLink.Tasks/9.0.1": {
-      "sha512": "BKFAkdhUUJivAoKuSWcT23WH9E+AWQMJootzt9X+lnesOD2a2yNIe1ZQFtxB8H3ayskLBD5gYyIbj5GIfw7rZg==",
+    "Microsoft.NET.ILLink.Tasks/9.0.8": {
+      "sha512": "rd1CbIsMtVPtZNTIVD6Xydue//klYOOQIDpRgu3BHtv17AlpRs74/6QFbcYgMm/jL+naVU2T3OFLxVSLV5lQLQ==",
       "type": "package",
-      "path": "microsoft.net.illink.tasks/9.0.1",
+      "path": "microsoft.net.illink.tasks/9.0.8",
       "hasTools": true,
       "files": [
         ".nupkg.metadata",
@@ -598,7 +598,7 @@
         "build/Microsoft.NET.ILLink.Analyzers.props",
         "build/Microsoft.NET.ILLink.Tasks.props",
         "build/Microsoft.NET.ILLink.targets",
-        "microsoft.net.illink.tasks.9.0.1.nupkg.sha512",
+        "microsoft.net.illink.tasks.9.0.8.nupkg.sha512",
         "microsoft.net.illink.tasks.nuspec",
         "tools/net472/ILLink.Tasks.dll",
         "tools/net472/ILLink.Tasks.dll.config",
@@ -738,38 +738,30 @@
     "net9.0": [
       "FirebirdSql.Data.FirebirdClient >= 10.3.3",
       "Microsoft.AspNetCore.OpenApi >= 9.0.1",
-      "Microsoft.NET.ILLink.Tasks >= 9.0.1",
+      "Microsoft.NET.ILLink.Tasks >= 9.0.8",
       "Swashbuckle.AspNetCore >= 9.0.4",
       "Swashbuckle.AspNetCore.Annotations >= 9.0.4"
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Lucas Argate\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\Lucas Argate\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
+      "projectUniqueName": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj",
       "projectName": "FirebirdApi",
-      "projectPath": "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
+      "projectPath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj",
       "packagesPath": "C:\\Users\\Lucas Argate\\.nuget\\packages\\",
-      "outputPath": "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\obj\\",
+      "outputPath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\Lucas Argate\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        "C:\\Users\\Lucas Argate\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
       ],
       "sources": {
-        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
-        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -788,7 +780,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net9.0": {
@@ -805,7 +797,7 @@
           "Microsoft.NET.ILLink.Tasks": {
             "suppressParent": "All",
             "target": "Package",
-            "version": "[9.0.1, )",
+            "version": "[9.0.8, )",
             "autoReferenced": true
           },
           "Swashbuckle.AspNetCore": {
@@ -831,15 +823,15 @@
         "downloadDependencies": [
           {
             "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
-            "version": "[9.0.1, 9.0.1]"
+            "version": "[9.0.8, 9.0.8]"
           },
           {
             "name": "Microsoft.NETCore.App.Runtime.win-x64",
-            "version": "[9.0.1, 9.0.1]"
+            "version": "[9.0.8, 9.0.8]"
           },
           {
             "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
-            "version": "[9.0.1, 9.0.1]"
+            "version": "[9.0.8, 9.0.8]"
           }
         ],
         "frameworkReferences": {
@@ -850,7 +842,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.102/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.304/PortableRuntimeIdentifierGraph.json"
       }
     },
     "runtimes": {
