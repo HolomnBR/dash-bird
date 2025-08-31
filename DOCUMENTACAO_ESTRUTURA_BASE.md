@@ -303,7 +303,101 @@ Este é um **sistema ERP empresarial de alta complexidade** que combina:
 
 ---
 
-## **14. NAVEGAÇÃO E LINKS**
+## **14. PERGUNTAS ESTRATÉGICAS PARA O DONO DO NEGÓCIO**
+
+Analisando a estrutura do sistema ERP, aqui estão **10 perguntas estratégicas** que um dono de negócio faria para conhecer seus dados e tomar decisões:
+
+### **14.1 📊 PRODUÇÃO E EFICIÊNCIA**
+> **"Quais são meus produtos mais rentáveis e quais estão me dando prejuízo?"**
+- **Dados necessários**: Tabelas `PRODUTO`, `RECEITA`, `ITEM_RECEITA`, `PRECOVENDA`, custos de produção
+- **Objetivo**: Identificar mix de produtos ideal e otimizar produção
+
+### **14.2 🕒 GESTÃO DE TEMPO E PRODUTIVIDADE**
+> **"Quanto tempo leva para produzir cada produto e onde posso otimizar?"**
+- **Dados necessários**: `TEMPO_RECEITA`, `FASE_RECEITA`, `OS_PRODUCAO`, `ITEM_OS_PRODUCAO_FASE`
+- **Objetivo**: Reduzir tempo de produção e aumentar capacidade
+
+### **14.3 📈 CONTROLE DE ESTOQUE E PERDAS**
+> **"Quais ingredientes estão vencendo ou em excesso no estoque?"**
+- **Dados necessários**: `MOV_ESTOQUE`, `SALDOESTOQUE`, `LOCAL_ESTOQUE`, `TIPO_ESTOQUE`
+- **Objetivo**: Minimizar desperdícios e otimizar compras
+
+### **14.4 💰 MARGEM E RENTABILIDADE**
+> **"Qual é a margem real de cada produto considerando todos os custos?"**
+- **Dados necessários**: `PRECOVENDA`, `ITEM_RECEITA`, custos de ingredientes, `PRECO_MARGEM_PEDIDO`
+- **Objetivo**: Ajustar preços e focar nos produtos mais lucrativos
+
+### **14.5 🚚 ENTREGAS E DISTRIBUIÇÃO**
+> **"Quais são minhas rotas mais eficientes e clientes mais rentáveis por região?"**
+- **Dados necessários**: `ENTREGA_PEDIDO`, `TAXA_ENTREGA`, `BAIRROS`, `CIDADES`, `CLIENTES`
+- **Objetivo**: Otimizar rotas e focar em clientes estratégicos
+
+### **14.6 👥 GESTÃO DE FUNCIONÁRIOS**
+> **"Quais funcionários são mais produtivos e onde preciso de mais gente?"**
+- **Dados necessários**: `FUNCIONARIOS`, `ATIVIDADES`, `TEMPO_POR_RECEITA`, `DEP_FUNCIONARIOS`
+- **Objetivo**: Otimizar equipe e identificar necessidades de contratação
+
+### **14.7 📅 SAZONALIDADE E TENDÊNCIAS**
+> **"Quais produtos vendem mais em cada época do ano e como me preparar?"**
+- **Dados necessários**: `PEDIDO`, `ITEMPEDIDO`, datas de vendas, `GRUPO_VENDA`
+- **Objetivo**: Planejar produção e estoque para picos de demanda
+
+### **14.8 🏪 DESEMPENHO POR PONTO DE VENDA**
+> **"Qual caixa/loja está vendendo mais e por quê?"**
+- **Dados necessários**: `CAIXA`, `MOV_CAIXA`, `VENDA_TOTAL`, `VENDA_BRUTA`
+- **Objetivo**: Replicar estratégias de sucesso e identificar problemas
+
+### **14.9 🔄 CICLO DE VIDA DOS PRODUTOS**
+> **"Quais produtos estão perdendo mercado e quais estão crescendo?"**
+- **Dados necessários**: `HIST_PRODUTO`, vendas por período, `GRADE_PRODUTO`
+- **Objetivo**: Renovar portfólio e focar em produtos promissores
+
+### **14.10 📋 QUALIDADE E SATISFAÇÃO DO CLIENTE**
+> **"Quais produtos têm mais devoluções ou reclamações?"**
+- **Dados necessários**: `STATUS_ESTOQUE`, `MOV_ESTOQUE`, histórico de vendas, feedback
+- **Objetivo**: Melhorar qualidade e reduzir perdas por problemas de produto
+
+---
+
+## **15. COMO O SISTEMA PODE RESPONDER ESSAS PERGUNTAS**
+
+### **15.1 Relatórios que podem ser gerados:**
+1. **Dashboard de Produção** - Produtividade por produto e funcionário
+2. **Análise de Margem** - Rentabilidade por produto e categoria
+3. **Controle de Estoque** - Alertas de vencimento e excesso
+4. **Análise de Vendas** - Performance por região e período
+5. **Gestão de Recursos** - Eficiência da equipe e equipamentos
+
+### **15.2 Benefícios para o dono:**
+- **Tomada de decisão baseada em dados** reais
+- **Identificação de oportunidades** de melhoria
+- **Redução de custos** e desperdícios
+- **Aumento da produtividade** e rentabilidade
+- **Planejamento estratégico** mais preciso
+
+### **15.3 Exemplos de consultas SQL estratégicas:**
+```sql
+-- Produtos mais rentáveis
+SELECT p.DESCRICAO_PRODUTO, 
+       p.PRECOVENDA - SUM(ir.QTD_RECEITA * i.PRECO) as MARGEM
+FROM PRODUTO p
+JOIN ITEM_RECEITA ir ON p.ID_PRODUTO = ir.ID_PRODUTO
+JOIN INGREDIENTE i ON ir.ID_INGREDIENTE = i.ID_INGREDIENTE
+GROUP BY p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECOVENDA
+ORDER BY MARGEM DESC;
+
+-- Tempo médio de produção por produto
+SELECT p.DESCRICAO_PRODUTO, 
+       AVG(r.TEMPO_RECEITA) as TEMPO_MEDIO
+FROM PRODUTO p
+JOIN RECEITA r ON p.ID_PRODUTO = r.ID_PRODUTO
+GROUP BY p.ID_PRODUTO, p.DESCRICAO_PRODUTO
+ORDER BY TEMPO_MEDIO DESC;
+```
+
+---
+
+## **16. NAVEGAÇÃO E LINKS**
 
 - **📖 [README Principal](README.md)** - Visão geral do projeto Dash Bird
 - **📚 [Documentação da API](FirebirdApi/README.md)** - Documentação da API .NET
