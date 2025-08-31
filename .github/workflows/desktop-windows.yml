@@ -65,19 +65,28 @@ jobs:
         run: pnpm run build:windows
 
       - name: List generated files
+        shell: pwsh
         run: |
-          echo "📁 Arquivos gerados em desktop/release:"
-          echo "📁 Conteúdo da pasta release (Windows):"
-          dir desktop\release
-          echo "🔍 Procurando por arquivos específicos:"
-          echo "Executáveis (.exe):"
-          Get-ChildItem "desktop\release\*.exe" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
-          echo "Arquivos ZIP:"
-          Get-ChildItem "desktop\release\*.zip" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
-          echo "Arquivos 7z:"
-          Get-ChildItem "desktop\release\*.7z" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
-          echo "Todos os arquivos na pasta release:"
-          Get-ChildItem "desktop\release" | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes) - $($_.Extension)" }
+          Write-Host "📁 Verificando arquivos gerados..."
+          Write-Host "📁 Conteúdo da pasta release:"
+          
+          if (Test-Path "desktop\release") {
+            $files = Get-ChildItem "desktop\release" -Force
+            foreach ($file in $files) {
+              Write-Host "  - $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
+            }
+            
+            Write-Host "`n🔍 Arquivos por tipo:"
+            $exeFiles = Get-ChildItem "desktop\release\*.exe" -ErrorAction SilentlyContinue
+            $zipFiles = Get-ChildItem "desktop\release\*.zip" -ErrorAction SilentlyContinue
+            $7zFiles = Get-ChildItem "desktop\release\*.7z" -ErrorAction SilentlyContinue
+            
+            Write-Host "Executáveis (.exe): $($exeFiles.Count) arquivos"
+            Write-Host "ZIP (.zip): $($zipFiles.Count) arquivos"
+            Write-Host "7z (.7z): $($7zFiles.Count) arquivos"
+          } else {
+            Write-Host "❌ Pasta desktop\release não encontrada!"
+          }
 
       - name: Create Release
         id: create_release
