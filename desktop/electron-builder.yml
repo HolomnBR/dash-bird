@@ -16,8 +16,11 @@ win:
     - nsis
     - portable
   artifactName: "DashBird-${version}-${arch}.${ext}"
+  icon: public/vite.svg
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  installerIcon: public/vite.svg
+  uninstallerIcon: public/vite.svg
 

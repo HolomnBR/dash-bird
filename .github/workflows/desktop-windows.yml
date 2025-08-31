@@ -64,6 +64,9 @@ jobs:
       - name: Build Windows artifacts
         run: pnpm run build:windows
 
+      - name: Verify build integrity
+        run: pnpm run verify:build
+
       - name: List generated files
         shell: pwsh
         run: |
@@ -84,8 +87,16 @@ jobs:
             Write-Host "Executáveis (.exe): $($exeFiles.Count) arquivos"
             Write-Host "ZIP (.zip): $($zipFiles.Count) arquivos"
             Write-Host "7z (.7z): $($7zFiles.Count) arquivos"
+            
+            # Salvar nomes dos arquivos para uso posterior
+            if ($exeFiles.Count -gt 0) {
+              $exeFile = $exeFiles[0].Name
+              echo "EXE_FILE_NAME=$exeFile" >> $env:GITHUB_ENV
+              Write-Host "📦 Arquivo .exe principal: $exeFile"
+            }
           } else {
             Write-Host "❌ Pasta desktop\release não encontrada!"
+            exit 1
           }
 
       - name: Create Release
@@ -113,13 +124,34 @@ jobs:
           prerelease: false
           target_commitish: ${{ github.sha }}
 
+      - name: Verify files before upload
+        shell: pwsh
+        run: |
+          Write-Host "🔍 Verificando arquivos antes do upload..."
+          
+          $exePath = "desktop\release\$env:EXE_FILE_NAME"
+          $zipPath = "desktop\release\*.zip"
+          $7zPath = "desktop\release\*.7z"
+          
+          if (-not (Test-Path $exePath)) {
+            Write-Host "❌ Arquivo .exe não encontrado: $exePath"
+            exit 1
+          }
+          
+          $zipFiles = Get-ChildItem $zipPath -ErrorAction SilentlyContinue
+          $7zFiles = Get-ChildItem $7zPath -ErrorAction SilentlyContinue
+          
+          Write-Host "✅ Arquivo .exe encontrado: $exePath"
+          Write-Host "📦 Arquivos ZIP: $($zipFiles.Count)"
+          Write-Host "📦 Arquivos 7z: $($7zFiles.Count)"
+
       - name: Upload NSIS Installer
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/DashBird-*.exe
+          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
           asset_name: DashBird-Windows-Installer-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
@@ -129,11 +161,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/DashBird-*.exe
+          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
           asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
       - name: Upload ZIP Archive
+        if: hashFiles('desktop/release/*.zip') != ''
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -144,6 +177,7 @@ jobs:
           asset_content_type: application/zip
 
       - name: Upload 7z Archive
+        if: hashFiles('desktop/release/*.7z') != ''
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
