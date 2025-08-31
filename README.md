@@ -1,5 +1,7 @@
 ## Dash Bird — Desktop + API Firebird
 
+![Dash Bird Logo](Material/dash-bird-holomn.jpg)
+
 Aplicação desktop (Electron + React + Vite) para explorar e operar bases Firebird, integrada a uma API .NET 9 que gerencia múltiplas configurações de bancos (arquivo .FDB) e fornece endpoints para consultas SQL, metadados e utilidades.
 
 ### Estrutura do repositório
