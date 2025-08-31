@@ -1,0 +1,129 @@
+name: Force Public Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  force-public-release:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build API
+        working-directory: desktop
+        run: pnpm run build:api
+
+      - name: Build Electron
+        working-directory: desktop
+        run: pnpm run build:electron
+
+      - name: Build Windows artifacts
+        working-directory: desktop
+        run: pnpm run build:windows
+
+      - name: List generated files
+        run: |
+          echo "📁 Arquivos gerados:"
+          dir desktop\release
+
+      - name: Create Public Release via API
+        run: |
+          $headers = @{
+            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
+            "Accept" = "application/vnd.github.v3+json"
+          }
+          
+          $body = @{
+            tag_name = "v${{ github.event.inputs.version }}"
+            name = "DashBird Windows v${{ github.event.inputs.version }}"
+            body = "🚀 Release público do DashBird para Windows`n`n**Version:** ${{ github.event.inputs.version }}`n**Build Date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+            draft = $false
+            prerelease = $false
+            target_commitish = "${{ github.sha }}"
+          } | ConvertTo-Json
+          
+          $response = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases" -Method Post -Headers $headers -Body $body
+          
+          echo "RELEASE_ID=$($response.id)" >> $env:GITHUB_ENV
+          echo "UPLOAD_URL=$($response.upload_url)" >> $env:GITHUB_ENV
+          
+          echo "✅ Release criado com ID: $($response.id)"
+          echo "📤 Upload URL: $($response.upload_url)"
+
+      - name: Upload Assets via API
+        run: |
+          $headers = @{
+            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
+            "Accept" = "application/vnd.github.v3+json"
+          }
+          
+          # Upload executáveis
+          Get-ChildItem "desktop\release\*.exe" | ForEach-Object {
+            $fileName = $_.Name
+            $filePath = $_.FullName
+            
+            echo "📤 Fazendo upload de: $fileName"
+            
+            $uploadUrl = "$env:UPLOAD_URL?name=$fileName"
+            $fileBytes = [System.IO.File]::ReadAllBytes($filePath)
+            
+            try {
+              $response = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -Body $fileBytes -ContentType "application/octet-stream"
+              echo "✅ Upload bem-sucedido: $fileName"
+            }
+            catch {
+              echo "❌ Erro no upload de $fileName`: $_"
+            }
+          }
+          
+          # Upload arquivos compactados
+          Get-ChildItem "desktop\release\*.zip" | ForEach-Object {
+            $fileName = $_.Name
+            $filePath = $_.FullName
+            
+            echo "📤 Fazendo upload de: $fileName"
+            
+            $uploadUrl = "$env:UPLOAD_URL?name=$fileName"
+            $fileBytes = [System.IO.File]::ReadAllBytes($filePath)
+            
+            try {
+              $response = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -Body $fileBytes -ContentType "application/zip"
+              echo "✅ Upload bem-sucedido: $fileName"
+            }
+            catch {
+              echo "❌ Erro no upload de $fileName`: $_"
+            }
+          }

@@ -68,8 +68,15 @@ jobs:
         run: |
           echo "📁 Arquivos gerados em desktop/release:"
           ls -la desktop/release/
-          echo "📁 Conteúdo da pasta release:"
+          echo "📁 Conteúdo da pasta release (Windows):"
           dir desktop\release
+          echo "🔍 Procurando por arquivos específicos:"
+          echo "Executáveis (.exe):"
+          Get-ChildItem "desktop\release\*.exe" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
+          echo "Arquivos ZIP:"
+          Get-ChildItem "desktop\release\*.zip" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
+          echo "Arquivos 7z:"
+          Get-ChildItem "desktop\release\*.7z" -ErrorAction SilentlyContinue | ForEach-Object { echo "  - $($_.Name) ($($_.Length) bytes)" }
 
       - name: Create Release
         id: create_release
@@ -94,6 +101,7 @@ jobs:
             ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
           draft: false
           prerelease: false
+          target_commitish: ${{ github.sha }}
 
       - name: Upload NSIS Installer
         uses: actions/upload-release-asset@v1
@@ -134,4 +142,14 @@ jobs:
           asset_path: desktop/release/*.7z
           asset_name: DashBird-Windows-v${{ github.run_number }}.7z
           asset_content_type: application/x-7z-compressed
+
+      - name: Upload artifacts (Backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.7z
+            desktop/release/*.nsis.exe
 
