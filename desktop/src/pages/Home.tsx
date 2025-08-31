@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Settings as SettingsIcon, Plus } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, BarChart3 } from 'lucide-react'
 import { Header } from '../components/molecules/Header'
 import { DatabaseList } from '../components/organisms/DatabaseList'
 
@@ -41,9 +41,14 @@ export function Home() {
     <main className="mx-auto max-w-3xl">
       <Header
         leftSlot={
-          <Link to="/settings" aria-label="Configurações" title="Configurações">
-            <SettingsIcon size={18} className="opacity-80 hover:opacity-100" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to="/dashboard" aria-label="Dashboard Estratégico" title="Dashboard Estratégico">
+              <BarChart3 size={18} className="opacity-80 hover:opacity-100" />
+            </Link>
+            <Link to="/settings" aria-label="Configurações" title="Configurações">
+              <SettingsIcon size={18} className="opacity-80 hover:opacity-100" />
+            </Link>
+          </div>
         }
         title={alias ? `${deviceName} (${alias})` : (deviceName || 'Carregando...')}
         subtitle={machineId || ''}
