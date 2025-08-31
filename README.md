@@ -9,7 +9,7 @@ Aplicação desktop (Electron + React + Vite) para explorar e operar bases Fireb
 - `desktop`: App desktop em Electron + React + Vite
 - `FirebirdApi`: API .NET 9 para Firebird (Swagger incluso)
 - `FirebirdTest`: Console de teste de conexão Firebird
-- `Firebird259`: Binários/distribuição do Firebird 2.5 (para referência local)
+
 
 ### Requisitos
 
