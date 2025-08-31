@@ -13,6 +13,7 @@ namespace FirebirdApi.Services
         Task<bool> TestConnectionAsync(string id);
         Task<List<TableInfo>> GetTablesAsync(string id);
         Task<List<TableSchema>> GetTableSchemaAsync(string id, IEnumerable<string> tableNames);
+        Task<DatabaseSnapshot> GenerateDatabaseSnapshotAsync(string id);
         Task<DatabaseConfig?> GetDefaultDatabaseAsync();
         Task<bool> SetDefaultDatabaseAsync(string id);
         Task<ProjectConfig> GetProjectConfigAsync();
@@ -459,6 +460,123 @@ namespace FirebirdApi.Services
                    $"Password={config.Password};" +
                    $"Charset={config.Charset};" +
                    "Dialect=3;";
+        }
+
+        public async Task<DatabaseSnapshot> GenerateDatabaseSnapshotAsync(string id)
+        {
+            var database = await GetDatabaseByIdAsync(id);
+            if (database == null)
+                throw new InvalidOperationException($"Base de dados com ID '{id}' não encontrada");
+
+            try
+            {
+                using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+                await connection.OpenAsync();
+
+                var snapshot = new DatabaseSnapshot
+                {
+                    DatabaseId = database.Id,
+                    DatabaseName = database.Name,
+                    GeneratedAt = DateTime.UtcNow,
+                    Tables = new List<TableFullInfo>()
+                };
+
+                // 1. Listar todas as tabelas
+                var tables = await GetTablesAsync(id);
+                
+                foreach (var table in tables)
+                {
+                    var tableFullInfo = new TableFullInfo
+                    {
+                        TableName = table.TableName,
+                        Schema = table.Schema,
+                        TableType = table.TableType,
+                        Description = table.Description,
+                        Columns = new List<ColumnSchema>(),
+                        RecordCount = 0,
+                        LastId = null,
+                        GeneratedAt = DateTime.UtcNow
+                    };
+
+                    try
+                    {
+                        // 2. Recuperar schema da tabela
+                        var tableSchemas = await GetTableSchemaAsync(id, new[] { table.TableName });
+                        if (tableSchemas.Any())
+                        {
+                            tableFullInfo.Columns = tableSchemas.First().Columns;
+                        }
+
+                        // 3. Contar quantidade de registros
+                        var countQuery = $"SELECT COUNT(*) FROM \"{table.TableName}\"";
+                        using var countCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(countQuery, connection);
+                        var recordCount = await countCmd.ExecuteScalarAsync();
+                        if (recordCount != null && recordCount != DBNull.Value)
+                        {
+                            tableFullInfo.RecordCount = Convert.ToInt64(recordCount);
+                        }
+
+                        // 4. Pegar o lastId (procurar por colunas de chave primária ou colunas ID)
+                        var pkColumns = await LoadPrimaryKeyColumnsAsync(connection, table.TableName);
+                        if (pkColumns.Any())
+                        {
+                            // Se tem chave primária, usar a primeira coluna
+                            var pkColumn = pkColumns.First();
+                            var lastIdQuery = $"SELECT MAX(\"{pkColumn}\") FROM \"{table.TableName}\"";
+                            using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
+                            var lastId = await lastIdCmd.ExecuteScalarAsync();
+                            if (lastId != null && lastId != DBNull.Value)
+                            {
+                                tableFullInfo.LastId = Convert.ToInt64(lastId);
+                            }
+                        }
+                        else
+                        {
+                            // Se não tem chave primária, procurar por colunas que parecem ser ID
+                            var idColumns = tableFullInfo.Columns
+                                .Where(c => c.ColumnName.ToUpperInvariant().Contains("ID") || 
+                                          c.ColumnName.ToUpperInvariant().Contains("CODIGO") ||
+                                          c.ColumnName.ToUpperInvariant().Contains("COD"))
+                                .ToList();
+                            
+                            if (idColumns.Any())
+                            {
+                                var idColumn = idColumns.First();
+                                var lastIdQuery = $"SELECT MAX(\"{idColumn.ColumnName}\") FROM \"{table.TableName}\"";
+                                using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
+                                var lastId = await lastIdCmd.ExecuteScalarAsync();
+                                if (lastId != null && lastId != DBNull.Value)
+                                {
+                                    tableFullInfo.LastId = Convert.ToInt64(lastId);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log do erro mas continua com as outras tabelas
+                        Console.WriteLine($"Erro ao processar tabela {table.TableName}: {ex.Message}");
+                    }
+
+                    snapshot.Tables.Add(tableFullInfo);
+                }
+
+                // 5. Salvar em JSON local
+                var snapshotDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "snapshots");
+                Directory.CreateDirectory(snapshotDir);
+                
+                var fileName = $"snapshot_{database.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
+                var filePath = Path.Combine(snapshotDir, fileName);
+                
+                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(filePath, json);
+
+                return snapshot;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Erro ao gerar snapshot da base de dados: {ex.Message}", ex);
+            }
         }
     }
 }

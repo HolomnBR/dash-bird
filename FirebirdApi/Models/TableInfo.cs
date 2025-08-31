@@ -34,4 +34,24 @@ namespace FirebirdApi.Models
 		public string TableName { get; set; } = string.Empty;
 		public List<ColumnSchema> Columns { get; set; } = new List<ColumnSchema>();
 	}
+
+	public class TableFullInfo
+	{
+		public string TableName { get; set; } = string.Empty;
+		public string Schema { get; set; } = string.Empty;
+		public string TableType { get; set; } = string.Empty;
+		public string Description { get; set; } = string.Empty;
+		public List<ColumnSchema> Columns { get; set; } = new List<ColumnSchema>();
+		public long RecordCount { get; set; } = 0;
+		public long? LastId { get; set; } = null;
+		public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+	}
+
+	public class DatabaseSnapshot
+	{
+		public string DatabaseId { get; set; } = string.Empty;
+		public string DatabaseName { get; set; } = string.Empty;
+		public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+		public List<TableFullInfo> Tables { get; set; } = new List<TableFullInfo>();
+	}
 }

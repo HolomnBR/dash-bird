@@ -48,6 +48,16 @@ Content-Type: application/json
   "tableNames": ["EMPLOYEE", "DEPARTMENT"]
 }
 
+### 6.2 Gerar snapshot completo da base de dados
+POST http://localhost:5000/api/DatabaseConfig/databases/{id}/generate-snapshot
+
+# Este endpoint irá:
+# 1. Listar todas as tabelas
+# 2. Para cada tabela, recuperar o schema
+# 3. Para cada tabela, contar quantidade de registros
+# 4. Para cada tabela, pegar o lastId (chave primária ou coluna ID)
+# 5. Salvar tudo em um JSON local na pasta "snapshots"
+
 ### 7. Obter configuração específica de uma base
 GET http://localhost:5000/api/DatabaseConfig/databases/{id}
 
