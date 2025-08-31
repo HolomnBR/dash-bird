@@ -12,6 +12,10 @@ on:
         required: false
         default: '🚀 Build automático do DashBird para Windows'
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   create-release:
     runs-on: windows-latest
@@ -19,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
