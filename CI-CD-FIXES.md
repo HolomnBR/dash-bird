@@ -1,58 +1,81 @@
-# Correções do Pipeline CI/CD
+# Correções do CI/CD - DashBird
 
 ## Problema Identificado
 
-O job "build-windows" estava falhando com o erro:
-```
-Error: Unable to locate executable file: pnpm. Please verify either the file path exists or the file can be found within the directory specified by the PATH environment variable.
-```
-
-## Causa Raiz
-
-A ordem dos passos no workflow estava incorreta:
-1. ❌ `actions/setup-node@v4` estava sendo executado antes de `pnpm/action-setup@v4`
-2. ❌ O cache do pnpm estava sendo configurado antes do pnpm estar disponível
-3. ❌ Faltava o setup do .NET SDK para compilar a API
+O erro no CI/CD estava ocorrendo porque o workflow do GitHub Actions estava tentando fazer upload de arquivos com o padrão `DashBird-*.exe`, mas o electron-builder estava gerando arquivos com o padrão `DashBird-${version}-${arch}.${ext}` (ex: `DashBird-0.0.0-x64.exe`).
 
 ## Correções Implementadas
 
-### 1. Ordem Correta dos Passos
-```yaml
-- name: Setup pnpm          # Primeiro: instalar pnpm
-- name: Setup Node          # Segundo: configurar Node com cache pnpm
-- name: Setup .NET          # Terceiro: instalar .NET SDK
-```
+### 1. Workflow do GitHub Actions (`.github/workflows/desktop-windows.yml`)
 
-### 2. Configuração de Cache Melhorada
-- Adicionado cache específico para pnpm store
-- Configuração correta do cache no setup do Node
+#### Problema:
+- Upload estava falhando porque o padrão `DashBird-*.exe` não encontrava os arquivos gerados
+- Não havia verificação se os arquivos existiam antes do upload
 
-### 3. Setup do .NET
-- Adicionado `actions/setup-dotnet@v4` para compilar a API .NET Core
+#### Soluções:
+- **Detecção dinâmica de arquivos**: O workflow agora detecta automaticamente o nome do arquivo .exe gerado
+- **Verificação de integridade**: Adicionado passo de verificação antes do upload
+- **Verificações condicionais**: Upload de arquivos ZIP e 7z só acontece se os arquivos existirem
+- **Melhor logging**: Logs mais detalhados para debug
 
-### 4. Arquivos Modificados
-- `.github/workflows/desktop-windows.yml` - Workflow principal corrigido
-- `.github/workflows/test-build.yml` - Workflow de teste criado
-- `.npmrc` - Configuração do pnpm adicionada
+### 2. Configuração do Electron Builder (`desktop/electron-builder.yml`)
+
+#### Melhorias:
+- Configuração limpa sem ícones problemáticos (SVG não é suportado)
+- Mantém configuração básica que funciona corretamente
+
+### 3. Scripts de Verificação
+
+#### Novo script: `desktop/scripts/verify-build.js`
+- Verifica se todos os arquivos necessários foram gerados
+- Valida integridade do build antes do upload
+- Fornece logs detalhados sobre o estado do build
+
+#### Melhorias no `desktop/scripts/build-api.js`
+- Verificação adicional se o executável foi copiado corretamente
+- Logs mais detalhados sobre arquivos copiados
+- Validação de tamanho dos arquivos
+
+## Fluxo Corrigido
+
+1. **Build da API** → `pnpm build:api`
+2. **Build do Electron** → `pnpm build:electron`
+3. **Build do Windows** → `pnpm build:windows`
+4. **Verificação de integridade** → `pnpm verify:build`
+5. **Detecção de arquivos** → Lista arquivos gerados
+6. **Verificação pré-upload** → Confirma existência dos arquivos
+7. **Upload dos artefatos** → Upload apenas se arquivos existirem
+
+## Arquivos Modificados
+
+- `.github/workflows/desktop-windows.yml`
+- `desktop/electron-builder.yml`
+- `desktop/scripts/verify-build.js`
+- `desktop/scripts/build-api.js`
 
 ## Como Testar
 
-1. **Workflow de Teste**: Execute o workflow "Test Build" manualmente para verificar se as correções funcionam
-2. **Build Completo**: Faça push para a branch `main` para executar o build completo
+Para testar localmente:
 
-## Estrutura do Build
+```bash
+cd desktop
+pnpm install
+pnpm build:full
+pnpm build:windows
+pnpm verify:build
+```
 
-O build agora segue esta sequência:
-1. Setup do ambiente (.NET, pnpm, Node)
-2. Instalação de dependências
-3. Build da API .NET Core
-4. Build do Electron
-5. Build dos artefatos Windows
-6. Upload dos artefatos
+Os arquivos devem ser gerados em `desktop/release/` com os nomes corretos.
 
-## Verificações Adicionais
+## Próximos Passos
 
-- ✅ Ordem correta dos passos
-- ✅ Cache configurado adequadamente
-- ✅ .NET SDK disponível para build da API
-- ✅ Scripts de build separados para melhor debugging
+1. Fazer commit das correções
+2. Push para a branch main
+3. Verificar se o workflow executa sem erros
+4. Confirmar que os releases são criados corretamente
+
+## Notas Importantes
+
+- O workflow agora é mais robusto e fornece melhor feedback em caso de erro
+- Arquivos são verificados antes do upload para evitar falhas
+- Logs detalhados facilitam o debug de problemas futuros
