@@ -37,9 +37,28 @@ try {
   // Copiar todos os arquivos
   fs.cpSync(publishPath, outputPath, { recursive: true });
 
+  // Verificar se o executável foi copiado corretamente
+  if (!fs.existsSync(apiExePath)) {
+    throw new Error('Executável da API não foi copiado corretamente');
+  }
+
+  const stats = fs.statSync(apiExePath);
   console.log('✅ API buildada com sucesso!');
   console.log(`📁 Arquivos copiados para: ${outputPath}`);
-  console.log(`🔧 Executável: ${apiExePath}`);
+  console.log(`🔧 Executável: ${apiExePath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+  
+  // Listar arquivos copiados
+  const files = fs.readdirSync(outputPath);
+  console.log('📦 Arquivos da API:');
+  files.forEach(file => {
+    const filePath = path.join(outputPath, file);
+    const fileStats = fs.statSync(filePath);
+    if (fileStats.isFile()) {
+      console.log(`  - ${file} (${(fileStats.size / 1024).toFixed(2)} KB)`);
+    } else {
+      console.log(`  - ${file}/ (diretório)`);
+    }
+  });
 
 } catch (error) {
   console.error('❌ Erro ao fazer build da API:', error.message);
