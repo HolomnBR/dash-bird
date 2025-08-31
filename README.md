@@ -4,6 +4,8 @@
 
 Aplicação desktop (Electron + React + Vite) para explorar e operar bases Firebird, integrada a uma API .NET 9 que gerencia múltiplas configurações de bancos (arquivo .FDB) e fornece endpoints para consultas SQL, metadados e utilidades.
 
+> 📚 **Documentação da Estrutura da Base de Dados**: Para uma análise detalhada da estrutura das bases Firebird suportadas, consulte a [Documentação da Estrutura da Base](DOCUMENTACAO_ESTRUTURA_BASE.md).
+
 ### Estrutura do repositório
 
 - `desktop`: App desktop em Electron + React + Vite
