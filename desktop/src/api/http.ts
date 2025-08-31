@@ -10,7 +10,7 @@ export class HttpClient {
   private readonly defaultHeaders: Record<string, string>
 
   constructor(options?: HttpClientOptions) {
-    this.baseUrl = options?.baseUrl ?? 'http://localhost:5175'
+    this.baseUrl = options?.baseUrl ?? 'http://localhost:5000'
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...(options?.headers ?? {}),
@@ -40,8 +40,7 @@ export class HttpClient {
     if (contentType.includes('application/json') || contentType.includes('text/json')) {
       return (await response.json()) as T
     }
-    // @ts-expect-error: allow returning unknown when endpoint returns plain text
-    return (await response.text()) as T
+    return (await response.text()) as unknown as T
   }
 }
 

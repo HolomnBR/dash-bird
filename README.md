@@ -18,10 +18,10 @@ Aplicação desktop (Electron + React + Vite) para explorar e operar bases Fireb
 
 ### Portas e URLs
 
-- API: `http://localhost:5175` (perfil de execução Development)
+- API: `http://localhost:5000` (porta padrão para produção e desenvolvimento)
 - Electron/React (dev): `http://localhost:5173`
 
-O app desktop está configurado para chamar a API em `http://localhost:5175` por padrão (`desktop/src/api/http.ts`). Caso altere a porta da API, ajuste ali.
+O app desktop está configurado para chamar a API em `http://localhost:5000` por padrão (`desktop/src/api/http.ts`).
 
 ---
 
@@ -38,10 +38,10 @@ dotnet run
 ```
 
 Por padrão os perfis de execução expõem:
-- HTTP: `http://localhost:5175`
+- HTTP: `http://localhost:5000`
 - HTTPS: `https://localhost:7195`
 
-Swagger/OpenAPI: `http://localhost:5175/swagger`
+Swagger/OpenAPI: `http://localhost:5000/swagger`
 
 Configuração base inicial: `FirebirdApi/config.json` traz um exemplo de base `TAVAGUA` com `id = "default"`. Bases adicionais e alterações dinâmicas são persistidas em `database-configs.json` no diretório de execução.
 
@@ -63,6 +63,36 @@ pnpm dev
 ```
 
 Isso abre a janela Electron apontando para `http://localhost:5173`.
+
+#### Se Electron falhar ao inicializar (Ex.: "Electron failed to install correctly")
+
+1. Na pasta `desktop`, rode o instalador do Electron (script já adicionado ao `package.json`):
+
+```
+pnpm run electron:install
+```
+
+2. Tente novamente:
+
+```
+pnpm dev
+```
+
+Caso o problema persista, apague `desktop/node_modules/electron` e rode o instalador novamente.
+
+#### Se o Vite apontar dependências ausentes (Ex.: `react-router-dom`, `lucide-react`)
+
+Instale-as dentro de `desktop`:
+
+```
+pnpm add react-router-dom lucide-react
+```
+
+Depois reinicie o dev server:
+
+```
+pnpm dev
+```
 
 4. Build de produção do front e do processo main/preload:
 

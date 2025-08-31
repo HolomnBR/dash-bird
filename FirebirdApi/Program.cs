@@ -39,7 +39,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 
-// CORS: permitir chamadas do app desktop (Vite dev server)
+// CORS: permitir chamadas do app desktop (Vite dev server e Electron)
 const string CorsPolicyName = "AllowDesktopDev";
 builder.Services.AddCors(options =>
 {
@@ -47,7 +47,9 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:5173",
-                "http://127.0.0.1:5173"
+                "http://127.0.0.1:5173",
+                "http://localhost:5000",
+                "http://127.0.0.1:5000"
             )
             .AllowAnyHeader()
             .AllowAnyMethod();
@@ -76,5 +78,13 @@ app.UseHttpsRedirection();
 app.UseCors(CorsPolicyName);
 app.UseAuthorization();
 app.MapControllers();
+
+// Configurar porta e logging
+var port = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5000";
+Console.WriteLine($"🚀 API iniciando na porta: {port}");
+
+// Configurar a URL para o app rodar
+app.Urls.Clear();
+app.Urls.Add(port);
 
 app.Run();

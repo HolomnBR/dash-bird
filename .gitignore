@@ -1,0 +1,57 @@
+# Build outputs and dependencies
+node_modules/
+dist/
+build/
+*.exe
+*.msi
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.snap
+*.appimage
+
+# Release builds
+desktop/release/
+desktop/dist-electron/
+desktop/api-dist/
+
+# .NET build outputs
+FirebirdApi/bin/
+FirebirdApi/obj/
+FirebirdTest/bin/
+FirebirdTest/obj/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Database files (if you don't want to version them)
+*.fdb
+*.gdb
+
+# Temporary files
+*.tmp
+*.temp
+/desktop/release

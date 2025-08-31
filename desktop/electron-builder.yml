@@ -1,0 +1,23 @@
+appId: com.holomn.dashbird
+productName: Dash Bird
+directories:
+  output: release
+files:
+  - dist/**
+  - dist-electron/**
+  - api-dist/**
+  - package.json
+extraResources:
+  - from: api-dist
+    to: api-dist
+asar: true
+win:
+  target:
+    - nsis
+    - portable
+  artifactName: "DashBird-${version}-${arch}.${ext}"
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+

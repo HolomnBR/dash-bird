@@ -95,6 +95,22 @@ export function DatabaseDetails() {
     }
   }
 
+  function getTruncatedPath(p: string | null | undefined): { display: string; title: string } {
+    const original = (p ?? '').replace(/\\/g, '/')
+    if (!original) return { display: '', title: '' }
+    // Try to show: C:/{first}/.../{file}
+    const parts = original.split('/').filter(Boolean)
+    if (parts.length <= 3) {
+      return { display: original, title: original }
+    }
+    const driveOrRoot = original.match(/^[a-zA-Z]:/) ? parts[0] : ''
+    const first = driveOrRoot ? parts[1] : parts[0]
+    const file = parts[parts.length - 1]
+    const prefix = driveOrRoot ? `${driveOrRoot}/` : ''
+    const display = `${prefix}${first}/.../${file}`
+    return { display, title: original }
+  }
+
   return (
     <main className="mx-auto max-w-3xl">
       <Header
@@ -104,7 +120,7 @@ export function DatabaseDetails() {
           </Link>
         }
         title={isCreate ? 'Nova base de dados' : (db?.name || db?.database || 'Base de dados')}
-        subtitle={isCreate ? '' : (db?.server ? `${db.server}` : '')}
+        subtitle={isCreate ? '' : (db?.server ? `${db.server}${db?.port ? `:${db.port}` : ''}` : '')}
         rightSlot={!isCreate ? (
           <button
             className="text-red-500 hover:text-red-400"
@@ -121,13 +137,22 @@ export function DatabaseDetails() {
         {error && <div className="text-sm text-red-400">Erro: {error}</div>}
         {!loading && !error && !isCreate && db && (
           <div className="space-y-3 text-sm">
-            <div><span className="opacity-70">Servidor:</span> {db.server}</div>
-            <div><span className="opacity-70">Database:</span> {db.database}</div>
+            <div>
+              <span className="opacity-70">Servidor:</span> {db.server}{db.port ? `:${db.port}` : ''}
+            </div>
+            <div>
+              <span className="opacity-70">Database:</span>{' '}
+              {(() => { const t = getTruncatedPath(db.database); return (
+                <span title={t.title}>{t.display}</span>
+              ) })()}
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><span className="opacity-70">Porta:</span> {db.port}</div>
               <div><span className="opacity-70">Usuário:</span> {db.username}</div>
               <div><span className="opacity-70">Charset:</span> {db.charset}</div>
-              <div><span className="opacity-70">Criado em:</span> {new Date(db.createdAt).toLocaleString()}</div>
+            </div>
+            <div>
+              <span className="opacity-70">Criado em:</span>
+              <div>{new Date(db.createdAt).toLocaleString()}</div>
             </div>
             <div className="flex gap-2 pt-2">
               <Button onClick={handleTest}>Testar conexão</Button>

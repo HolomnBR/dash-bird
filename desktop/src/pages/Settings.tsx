@@ -8,21 +8,29 @@ export function Settings() {
   const [alias, setAlias] = useState<string>('')
   const [deviceName, setDeviceName] = useState<string>('')
   const [machineId, setMachineId] = useState<string>('')
+  const [nodeId, setNodeId] = useState<string>('')
 
   useEffect(() => {
-    const savedAlias = localStorage.getItem('device.alias') || ''
-    setAlias(savedAlias)
     if (window.system) {
-      window.system.getInfo().then((info) => {
-        setDeviceName(info.deviceName)
-        setMachineId(info.machineId)
+      window.system.getNodeConfig().then((cfg) => {
+        setDeviceName(cfg.machineName)
+        setMachineId(cfg.machineId)
+        setAlias(cfg.alias || '')
+        setNodeId(cfg.nodeId)
       })
     }
   }, [])
 
-  function saveAlias() {
-    localStorage.setItem('device.alias', alias)
+  async function saveAlias() {
+    if (window.system) {
+      const cfg = await window.system.setAlias(alias)
+      setAlias(cfg.alias || '')
+    } else {
+      localStorage.setItem('device.alias', alias)
+    }
   }
+
+  const headerTitle = alias ? `${deviceName} (${alias})` : deviceName || 'Configurações'
 
   return (
     <main className="mx-auto max-w-3xl">
@@ -32,10 +40,11 @@ export function Settings() {
             <ArrowLeft size={18} className="opacity-80 hover:opacity-100" />
           </Link>
         }
-        title={deviceName || 'Configurações'}
+        title={headerTitle}
         subtitle={machineId}
       />
       <div className="p-6 space-y-6">
+        <div className="text-xs opacity-60">Node ID: {nodeId}</div>
         <div className="space-y-2">
           <label className="block text-sm opacity-70">Alias (opcional)</label>
           <input

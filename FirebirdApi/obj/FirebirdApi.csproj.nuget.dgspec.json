@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Projetos\\estudos\\forti\\dash\\FirebirdAPI\\FirebirdApi.csproj": {}
+    "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj": {}
   },
   "projects": {
-    "C:\\Projetos\\estudos\\forti\\dash\\FirebirdAPI\\FirebirdApi.csproj": {
+    "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdAPI\\FirebirdApi.csproj",
+        "projectUniqueName": "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
         "projectName": "FirebirdApi",
-        "projectPath": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdAPI\\FirebirdApi.csproj",
+        "projectPath": "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
         "packagesPath": "C:\\Users\\Lucas Argate\\.nuget\\packages\\",
-        "outputPath": "C:\\Projetos\\estudos\\forti\\dash\\FirebirdAPI\\obj\\",
+        "outputPath": "C:\\Projetos\\git\\HolomnProject\\dash-bird\\FirebirdApi\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -59,6 +59,12 @@
               "target": "Package",
               "version": "[9.0.1, )"
             },
+            "Microsoft.NET.ILLink.Tasks": {
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[9.0.1, )",
+              "autoReferenced": true
+            },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
               "version": "[9.0.4, )"
@@ -79,6 +85,20 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+              "version": "[9.0.1, 9.0.1]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Runtime.win-x64",
+              "version": "[9.0.1, 9.0.1]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+              "version": "[9.0.1, 9.0.1]"
+            }
+          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"
@@ -88,6 +108,11 @@
             }
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.102/PortableRuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "win-x64": {
+          "#import": []
         }
       }
     }

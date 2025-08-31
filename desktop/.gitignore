@@ -23,3 +23,7 @@ pnpm-debug.log*
 # SO
 .DS_Store
 Thumbs.db
+
+# Release builds
+release/
+api-dist/
