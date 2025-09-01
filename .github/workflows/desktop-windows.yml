@@ -70,17 +70,26 @@ jobs:
         run: |
           Write-Host "🔐 Iniciando build com assinatura digital..." -ForegroundColor Green
           
-          # Configurar assinatura de código usando o script especializado
-          if ($env:CSC_LINK) {
-            Write-Host "📋 Configurando certificado de assinatura..." -ForegroundColor Yellow
-            & "scripts\setup-code-signing.ps1" -CertificateBase64 $env:CSC_LINK -CertificatePassword $env:CSC_KEY_PASSWORD -WorkingDirectory "."
+          # Verificar se temos as variáveis necessárias
+          if ($env:CSC_LINK -and $env:CSC_KEY_PASSWORD) {
+            Write-Host "📋 Variáveis de ambiente configuradas:" -ForegroundColor Green
+            Write-Host "CSC_LINK: $env:CSC_LINK" -ForegroundColor Cyan
+            Write-Host "CSC_KEY_PASSWORD: [CONFIGURADO]" -ForegroundColor Cyan
+            
+            # Configurar assinatura de código usando o script especializado
+            Write-Host "🔐 Configurando certificado de assinatura..." -ForegroundColor Yellow
+            & "..\scripts\setup-code-signing.ps1" -CertificateBase64 $env:CSC_LINK -CertificatePassword $env:CSC_KEY_PASSWORD -WorkingDirectory "."
+            
+            # Executar o build com assinatura
+            Write-Host "🚀 Iniciando build com assinatura digital..." -ForegroundColor Green
+            pnpm run build:windows:signed
           } else {
             Write-Host "⚠️  Certificado não configurado. O build prosseguirá sem assinatura digital." -ForegroundColor Yellow
+            
+            # Executar o build sem assinatura
+            Write-Host "🚀 Iniciando build sem assinatura digital..." -ForegroundColor Green
+            pnpm run build:windows
           }
-          
-          # Executar o build
-          Write-Host "🚀 Iniciando build..." -ForegroundColor Green
-          pnpm run build:windows
           
           Write-Host "✅ Build concluído com sucesso!" -ForegroundColor Green
       

@@ -1,152 +1,148 @@
-# 🔐 Configuração de Assinatura de Código para Windows
+# 🔐 Configuração de Assinatura de Código para Dash Bird
 
-## Problema Resolvido
+Este documento explica como configurar a assinatura de código digital para o aplicativo Dash Bird no GitHub Actions.
 
-Este documento explica como configurar a assinatura digital do aplicativo DashBird para Windows, resolvendo o erro:
+## 📋 Pré-requisitos
 
-> **"O Microsoft Defender SmartScreen impediu que um aplicativo não reconhecido fosse iniciado. A execução deste aplicativo pode colocar o computador em risco."**
+1. **Certificado Digital (.pfx)** - Certificado de assinatura de código válido para Windows
+2. **Senha do Certificado** - Senha para acessar o certificado
+3. **Acesso ao Repositório** - Permissões para configurar secrets no GitHub
 
-## ✅ Solução Implementada
+## 🚀 Passo a Passo
 
-### 1. Configuração do Electron Builder
-- ✅ Configuração de certificado digital no `electron-builder.yml`
-- ✅ Suporte a assinatura automática durante o build
-- ✅ Configurações de segurança para Windows
+### 1. Preparar o Certificado
 
-### 2. Workflow GitHub Actions Atualizado
-- ✅ Variáveis de ambiente para certificados
-- ✅ Verificação automática de assinatura
-- ✅ Build com assinatura digital
+#### Opção A: Usando o Script Automatizado (Recomendado)
 
-## 🔑 Passos para Configurar
-
-### Passo 1: Obter Certificado Digital
-
-1. **Comprar um certificado de uma Autoridade Certificadora (CA):**
-   - [DigiCert](https://www.digicert.com/)
-   - [Sectigo](https://sectigo.com/)
-   - [GlobalSign](https://www.globalsign.com/)
-   - [Comodo](https://www.comodo.com/)
-
-2. **Tipos de certificado recomendados:**
-   - **Code Signing Certificate** (básico)
-   - **EV Code Signing Certificate** (recomendado - mais confiável)
-
-### Passo 2: Converter Certificado para Formato .pfx
-
-1. **Se você recebeu um arquivo .crt ou .pem:**
-   ```bash
-   # Converter para .pfx
-   openssl pkcs12 -export -out certificate.pfx -inkey private.key -in certificate.crt
-   ```
-
-2. **Se você recebeu um arquivo .pfx diretamente:**
-   - Use o arquivo como está
-
-### Passo 3: Codificar em Base64
-
-1. **Converter o arquivo .pfx para Base64:**
-   ```bash
-   # Windows PowerShell
-   $certBytes = Get-Content "certificate.pfx" -Encoding Byte
-   $base64 = [Convert]::ToBase64String($certBytes)
-   $dataUrl = "data:application/x-pkcs12;base64,$base64"
-   echo $dataUrl
-   ```
-
-2. **Ou usar ferramentas online:**
-   - [Base64 Encode](https://www.base64encode.org/)
-   - [Convert Files to Base64](https://base64.guru/converter/encode/file)
-
-### Passo 4: Configurar Secrets no GitHub
-
-1. **Acesse seu repositório no GitHub**
-2. **Vá para Settings > Secrets and variables > Actions**
-3. **Adicione os seguintes secrets:**
-
-   | Secret Name | Valor | Descrição |
-   |-------------|-------|-----------|
-   | `CSC_LINK` | `data:application/x-pkcs12;base64,MIIJ...` | Certificado .pfx em Base64 |
-   | `CSC_KEY_PASSWORD` | `sua_senha_aqui` | Senha do certificado |
-   | `CSC_KEY_SHA1` | `A1B2C3D4E5F6...` | Hash SHA1 do certificado (opcional) |
-
-### Passo 5: Verificar Configuração
-
-1. **Commit e push das alterações**
-2. **Verificar se o workflow executa com sucesso**
-3. **Verificar se os arquivos .exe estão assinados**
-
-## 🔍 Verificação da Assinatura
-
-### Durante o Build
-O workflow verifica automaticamente:
-- ✅ Presença do certificado
-- ✅ Assinatura dos arquivos .exe
-- ✅ Status da assinatura digital
-
-### Verificação Manual
 ```powershell
-# Verificar assinatura de um arquivo .exe
-Get-AuthenticodeSignature "DashBird.exe"
+# Execute o script de conversão
+.\scripts\convert-certificate.ps1 -CertificatePath "caminho/para/seu/certificado.pfx" -Password "sua_senha"
 ```
 
-## 📋 Estrutura de Arquivos Atualizada
+O script irá:
+- Converter o certificado para Base64
+- Gerar o arquivo `certificate-base64.txt`
+- Mostrar todas as informações necessárias
+
+#### Opção B: Conversão Manual
+
+```powershell
+# PowerShell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("caminho/para/seu/certificado.pfx"))
+```
+
+```bash
+# Bash/Linux
+base64 -i caminho/para/seu/certificado.pfx
+```
+
+### 2. Configurar Secrets no GitHub
+
+1. Acesse seu repositório no GitHub
+2. Vá para **Settings** > **Secrets and variables** > **Actions**
+3. Clique em **New repository secret**
+
+#### Secrets Necessários:
+
+| Nome do Secret | Valor | Descrição |
+|----------------|-------|-----------|
+| `CSC_LINK` | String Base64 do certificado | Certificado .pfx codificado em Base64 |
+| `CSC_KEY_PASSWORD` | Senha do certificado | Senha para acessar o certificado |
+| `CSC_KEY_SHA1` | Hash SHA1 (opcional) | Hash SHA1 do certificado para verificação |
+
+### 3. Formato do Certificado
+
+O `CSC_LINK` pode estar em dois formatos:
+
+#### Formato 1: Base64 Puro
+```
+MIIK... (string Base64 longa)
+```
+
+#### Formato 2: Data URL (Recomendado)
+```
+data:application/x-pkcs12;base64,MIIK... (string Base64 longa)
+```
+
+## 🔧 Configuração do Workflow
+
+O workflow já está configurado para:
+1. Detectar automaticamente o formato do certificado
+2. Decodificar o Base64 para arquivo .pfx
+3. Configurar as variáveis de ambiente corretamente
+4. Executar o build com assinatura digital
+
+## 📁 Estrutura de Arquivos
 
 ```
 desktop/
-├── electron-builder.yml          # ✅ Configuração de assinatura
-├── package.json                  # ✅ Scripts de build
-└── ...
-
-.github/
-└── workflows/
-    └── desktop-windows.yml      # ✅ Workflow com assinatura
+├── scripts/
+│   ├── convert-certificate.ps1      # Conversor de certificado
+│   ├── setup-code-signing.ps1       # Configurador de assinatura
+│   └── verify-signature.ps1         # Verificador de assinatura
+├── electron-builder.yml             # Configuração do electron-builder
+└── private/                         # Diretório para certificados (criado automaticamente)
+    └── certificate.pfx              # Certificado decodificado
 ```
 
-## 🚀 Benefícios da Assinatura
+## 🧪 Testando a Configuração
 
-1. **Segurança:**
-   - ✅ Windows Defender SmartScreen não bloqueia
-   - ✅ Aplicativo reconhecido como confiável
-   - ✅ Execução sem avisos de segurança
+### Teste Local
 
-2. **Profissionalismo:**
-   - ✅ Marca da empresa visível
-   - ✅ Confiança dos usuários
-   - ✅ Distribuição corporativa facilitada
+```powershell
+# Testar conversão de certificado
+.\scripts\convert-certificate.ps1 -CertificatePath "teste.pfx" -Password "senha123"
 
-3. **Compatibilidade:**
-   - ✅ Windows 10/11
-   - ✅ Windows Server
-   - ✅ Sistemas corporativos
+# Testar configuração de assinatura
+.\scripts\setup-code-signing.ps1 -CertificateBase64 "BASE64_DO_CERTIFICADO" -CertificatePassword "senha123"
+```
 
-## ⚠️ Troubleshooting
+### Teste no CI/CD
 
-### Erro: "Certificate not found"
-- Verifique se `CSC_LINK` está configurado corretamente
-- Certifique-se de que o certificado é válido
+1. Faça push para a branch `main`
+2. Verifique o workflow no GitHub Actions
+3. Observe os logs para confirmar a assinatura
 
-### Erro: "Invalid password"
-- Verifique se `CSC_KEY_PASSWORD` está correto
-- Teste a senha localmente primeiro
+## 🚨 Solução de Problemas
 
-### Erro: "Certificate expired"
-- Renove o certificado antes da expiração
-- Atualize o secret `CSC_LINK`
+### Erro: "Certificado não configurado"
+- Verifique se os secrets estão configurados corretamente
+- Confirme se os nomes dos secrets estão exatos
+- Verifique se o valor do `CSC_LINK` é válido
 
-## 💰 Custos Estimados
+### Erro: "Cannot resolve certificate path"
+- O certificado não foi decodificado corretamente
+- Verifique se o Base64 está correto
+- Confirme se a senha está correta
 
-| Tipo de Certificado | Preço Anual | Validade |
-|---------------------|-------------|----------|
-| Code Signing | $99 - $299 | 1-3 anos |
-| EV Code Signing | $299 - $599 | 1-3 anos |
+### Erro: "Invalid certificate format"
+- O certificado pode estar corrompido
+- Tente reconverter o arquivo .pfx original
+- Verifique se o certificado não expirou
+
+## 📚 Recursos Adicionais
+
+- [Documentação do electron-builder](https://www.electron.build/configuration/win)
+- [Assinatura de Código no Windows](https://docs.microsoft.com/en-us/windows/msix/package/create-certificate-package-signing)
+- [GitHub Actions Secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets)
+
+## 🔒 Segurança
+
+⚠️ **IMPORTANTE:**
+- Nunca commite certificados ou senhas no código
+- Use sempre secrets do GitHub Actions
+- Mantenha seus certificados seguros
+- Revogue certificados comprometidos imediatamente
 
 ## 📞 Suporte
 
-- **Documentação:** Este arquivo
-- **Issues:** [GitHub Issues](https://github.com/HolomnBR/dash-bird/issues)
-- **Workflow:** `.github/workflows/desktop-windows.yml`
+Se encontrar problemas:
+1. Verifique os logs do GitHub Actions
+2. Execute os scripts de teste localmente
+3. Confirme a configuração dos secrets
+4. Abra uma issue no repositório
 
 ---
 
-**Nota:** A assinatura de código é obrigatória para distribuição profissional de software Windows. Sem ela, os usuários enfrentarão constantes avisos de segurança.
+**Última atualização:** $(Get-Date -Format "yyyy-MM-dd")
+**Versão:** 1.0.0
