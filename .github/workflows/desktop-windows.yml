@@ -58,20 +58,42 @@ jobs:
       # 1. BUILD
       - name: Build app
         run: pnpm run build:windows
+      
+      - name: Consolidate build
+        run: node scripts/consolidate-build.js
 
       # 2. PREPARE RELEASE
       - name: Prepare release
         shell: pwsh
         run: |
           Write-Host "📦 Preparando release..."
+          Write-Host "📁 Diretório atual: $(Get-Location)"
           
-          # Definir caminho do executável para upload
-          if (Test-Path "release\Dash Bird.exe") {
-            echo "UPLOAD_EXE_PATH=release\Dash Bird.exe" >> $env:GITHUB_ENV
-            Write-Host "✅ Dash Bird.exe encontrado: release\Dash Bird.exe"
+          # Listar arquivos para debug
+          Write-Host "📁 Conteúdo do diretório atual:"
+          Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
+          
+          # Verificar se a pasta release existe
+          if (Test-Path "release") {
+            Write-Host "📁 Conteúdo da pasta release:"
+            Get-ChildItem "release" | ForEach-Object { Write-Host "  - $($_.Name)" }
+            
+            # Definir caminho do executável para upload
+            if (Test-Path "release\Dash Bird.exe") {
+              echo "UPLOAD_EXE_PATH=release\Dash Bird.exe" >> $env:GITHUB_ENV
+              Write-Host "✅ Dash Bird.exe encontrado: release\Dash Bird.exe"
+            } elseif (Test-Path "release\win-unpacked\Dash Bird.exe") {
+              echo "UPLOAD_EXE_PATH=release\win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
+              Write-Host "✅ Dash Bird.exe encontrado: release\win-unpacked\Dash Bird.exe"
+            } else {
+              Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
+              Write-Host "🔍 Procurando por todos os arquivos .exe:"
+              Get-ChildItem "release" -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "  - $($_.FullName)" }
+              exit 1
+            }
           } else {
-            echo "UPLOAD_EXE_PATH=release\win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
-            Write-Host "✅ Dash Bird.exe encontrado: release\win-unpacked\Dash Bird.exe"
+            Write-Host "❌ Pasta release não encontrada!"
+            exit 1
           }
 
       - name: Create Release
