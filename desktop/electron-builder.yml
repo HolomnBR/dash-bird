@@ -31,21 +31,19 @@ win:
   requestedExecutionLevel: asInvoker
   artifactName: "${productName}-${version}-${arch}.${ext}"
 
-# Configurações do instalador NSIS (movido para o nível raiz)
+# Configurações do instalador NSIS (simplificadas)
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "Dash Bird"
+  # Configurações básicas de ícones (usando o mesmo ícone para tudo)
   installerIcon: "public/vite.svg"
   uninstallerIcon: "public/vite.svg"
-  installerHeader: "public/vite.svg"
-  installerSidebar: "public/vite.svg"
-  uninstallerSidebar: "public/vite.svg"
-  license: "LICENSE"
-  include: "build/installer.nsh"
-  script: "build/installer.nsi"
+  # Removendo referências a arquivos que não existem
+  # include: "build/installer.nsh"
+  # script: "build/installer.nsi"
 
 # Configurações gerais de segurança
 publish:
