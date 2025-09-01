@@ -18,8 +18,8 @@ win:
         - x64
   
   # Configurações de assinatura de código (propriedades corretas para v26.0.12)
-  cscLink: $CSC_LINK
-  cscKeyPassword: $CSC_KEY_PASSWORD
+  cscLink: ${CSC_LINK}
+  cscKeyPassword: ${CSC_KEY_PASSWORD}
   
   # Configurações de segurança e compatibilidade
   requestedExecutionLevel: asInvoker
