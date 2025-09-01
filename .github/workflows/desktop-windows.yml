@@ -91,10 +91,7 @@ jobs:
 
       # 4. UPLOAD ASSETS
       - name: Upload Release Assets
-        uses: svenstaro/upload-release-assets@v1
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          tag: v${{ github.run_number }}
-          file: desktop/release/*.*
-          file_glob: true
-          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v${{ github.run_number }} release/*.* --clobber
