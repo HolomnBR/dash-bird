@@ -13,7 +13,7 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
-const apiManager = new ApiManager()
+const apiManager = new ApiManager(app) // Passa o objeto 'app' imediatamente
 const argv = process.argv.slice(1)
 const shouldOpenDevTools = argv.includes('--devtools') || argv.includes('--debug') || argv.includes('-d') || process.env.OPEN_DEVTOOLS === '1'
 const shouldDisableGpu = argv.includes('--disable-gpu') || argv.includes('--safe-mode') || process.env.DISABLE_GPU === '1' || process.env.SAFE_MODE === '1'
@@ -204,15 +204,18 @@ ipcMain.handle('api:restart', async () => {
 console.log('✅ Handlers IPC registrados com sucesso')
 
 app.whenReady().then(async () => {
-  createWindow()
+  // Inicializa os caminhos do ApiManager e copia os arquivos se necessário
+  apiManager.init()
 
   // Verificar e iniciar a API se necessário
   try {
-    console.log('🔍 Verificando status da API...')
+    console.log('🔍 Garantindo que a API esteja rodando antes de criar a janela...')
     await apiManager.ensureApiRunning()
   } catch (error) {
     console.error('❌ Erro ao verificar/iniciar API:', error instanceof Error ? error.message : String(error))
   }
+
+  createWindow()
 
   // Register devtools shortcut in prod/dev
   globalShortcut.register('Control+Shift+I', () => {
@@ -242,7 +245,7 @@ app.on('window-all-closed', () => {
 // Cleanup da API quando o app for fechado
 app.on('before-quit', () => {
   console.log('🛑 Encerrando aplicação...')
-  apiManager.stopApi()
+  if (apiManager) {
+    apiManager.stopApi()
+  }
 })
-
-

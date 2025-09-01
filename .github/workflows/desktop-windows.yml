@@ -53,7 +53,6 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        shell: pwsh
         run: pnpm install --frozen-lockfile
 
       # 1. BUILD COM ASSINATURA DIGITAL
@@ -76,9 +75,9 @@ jobs:
           Write-Host "📋 Verificando variáveis de ambiente..." -ForegroundColor Yellow
           
           if ($env:CSC_LINK) {
-            Write-Host "✅ Certificado configurado" -ForegroundColor Green
+            Write-Host "✅ Certificado configurado. O build será assinado." -ForegroundColor Green
           } else {
-            Write-Host "⚠️  Certificado não configurado - build sem assinatura" -ForegroundColor Yellow
+            Write-Host "⚠️  Certificado não configurado. O build prosseguirá sem assinatura digital." -ForegroundColor Yellow
           }
           
           pnpm run build:windows
@@ -146,4 +145,4 @@ jobs:
             --notes-file release-notes.md `
             --latest
           
-          Write-Host "✅ Release criado com sucesso!" -ForegroundColor Green
+          echo "✅ Release criado com sucesso!"
