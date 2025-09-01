@@ -3,22 +3,9 @@ productName: Dash Bird
 directories:
   output: release
 files:
-  - dist/**
-  - dist-electron/**
-  - api-dist/**
-  - package.json
-extraResources:
-  - from: api-dist
-    to: api-dist
-asar: true
-win:
-  forceCodeSigning: false
-  target:
-    - nsis
-    - portable
-  artifactName: "Dash Bird.${ext}"
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
-
+  - "dist/**/*"
+  - "dist-electron/**/*"
+  - "api-dist/**/*"
+publish:
+  provider: github
+  # owner e repo são detectados automaticamente pelo CI do GitHub

@@ -57,77 +57,14 @@ jobs:
 
       # 1. BUILD
       - name: Build app
-        run: pnpm run build:windows
+        env:
+          # O GITHUB_TOKEN é necessário para que o electron-builder possa autenticar e criar o release.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm run build:windows --publish always
       
+      # Opcional: Verificação pós-build
       - name: Verify build artifacts
-        run: node scripts/verify-build.js
-
-      - name: List generated files for debug
         run: |
+          node scripts/verify-build.js
           echo "📁 Arquivos gerados em desktop/release:"
           dir release
-
-      # 2. CREATE RELEASE
-      - name: Create Release via API
-        id: create_release_api
-        shell: pwsh
-        run: |
-          $headers = @{
-            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
-            "Accept"          = "application/vnd.github.v3+json"
-          }
-          $body = @{
-            tag_name         = "v${{ github.run_number }}"
-            name             = "DashBird Windows Build v${{ github.run_number }}"
-            body             = "🚀 Build automático do DashBird para Windows`n`n**Build Number:** ${{ github.run_number }}`n**Commit:** ${{ github.sha }}`n**Branch:** ${{ github.ref_name }}`n`n⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}"
-            draft            = $false
-            prerelease       = $false
-            target_commitish = "${{ github.sha }}"
-          } | ConvertTo-Json
-
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases" -Method Post -Headers $headers -Body $body -ContentType "application/json"
-
-          echo "upload_url=$($release.upload_url)" >> $env:GITHUB_OUTPUT
-
-          Write-Host "✅ Release criado com ID: $($release.id)"
-
-      # 3. UPLOAD ARTIFACTS
-      - name: Upload Release Assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        # This step uses the upload_url from the previous API call.
-        # It's more reliable than using older actions for uploads.
-        run: |
-          $headers = @{
-            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
-            "Accept"          = "application/vnd.github.v3+json"
-          }
-
-          $filesToUpload = Get-ChildItem "release" -File | Where-Object { $_.Extension -in ".exe", ".zip", ".7z", ".blockmap" }
-
-          if ($null -eq $filesToUpload) {
-            Write-Error "❌ Nenhum artefato de build encontrado na pasta 'release' para upload."
-            exit 1
-          }
-
-          foreach ($file in $filesToUpload) {
-            $assetPath   = $file.FullName
-            $assetName   = $file.Name
-            # The upload_url from the API is a template: "https://.../assets{?name,label}"
-            # We must remove the template part before adding our query string.
-            $uploadUrlBase = "${{ steps.create_release_api.outputs.upload_url }}".Split('{')[0]
-            $uploadUrl   = "$uploadUrlBase?name=$assetName"
-
-            $contentType = switch ($file.Extension) {
-              ".zip"  { "application/zip" }
-              ".7z"   { "application/x-7z-compressed" }
-              default { "application/octet-stream" }
-            }
-
-            Write-Host "📤 Fazendo upload de '$assetName' para '$uploadUrl'..."
-            $fileBytes = [System.IO.File]::ReadAllBytes($assetPath)
-
-            Invoke-WebRequest -Uri $uploadUrl -Method Post -Headers $headers -Body $fileBytes -ContentType $contentType -UseBasicParsing
-            Write-Host "✅ Upload de '$assetName' concluído."
-          }
