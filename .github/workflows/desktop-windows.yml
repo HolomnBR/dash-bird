@@ -64,41 +64,69 @@ jobs:
       - name: Build Windows artifacts
         run: pnpm run build:windows
 
+      - name: Garantir pasta release
+        run: mkdir -p desktop/release
+        shell: bash
+
+      - name: Consolidar artefatos de build
+        shell: pwsh
+        run: |
+          Write-Host "📁 Consolidando artefatos de build em desktop/release..."
+          
+          # Garantir que a pasta release existe
+          if (-not (Test-Path "desktop\release")) {
+            New-Item -ItemType Directory -Path "desktop\release" -Force
+          }
+          
+          # Copiar arquivos da API se não existirem
+          if (Test-Path "api-dist") {
+            Write-Host "📦 Copiando arquivos da API..."
+            Copy-Item -Path "api-dist\*" -Destination "desktop\release\" -Recurse -Force
+          }
+          
+          # Copiar arquivos do build do Electron se não existirem
+          if (Test-Path "dist") {
+            Write-Host "📦 Copiando arquivos do build do Electron..."
+            Copy-Item -Path "dist\*" -Destination "desktop\release\" -Recurse -Force
+          }
+          
+          # Copiar arquivos do dist-electron se não existirem
+          if (Test-Path "dist-electron") {
+            Write-Host "📦 Copiando arquivos do dist-electron..."
+            Copy-Item -Path "dist-electron\*" -Destination "desktop\release\" -Recurse -Force
+          }
+          
+          # Verificar se a pasta win-unpacked foi criada pelo electron-builder
+          if (Test-Path "release\win-unpacked") {
+            Write-Host "📦 Copiando executável do win-unpacked..."
+            Copy-Item -Path "release\win-unpacked\*.exe" -Destination "desktop\release\" -Force
+          }
+          
+          Write-Host "✅ Artefatos consolidados em desktop/release"
+
       - name: Verify build integrity
         run: pnpm run verify:build
 
       - name: List generated files
         shell: pwsh
         run: |
-          Write-Host "📁 Verificando arquivos gerados..."
-          Write-Host "📁 Conteúdo da pasta release:"
+          Write-Host "📁 Verificando arquivos gerados em desktop/release..."
           
-          if (Test-Path "release") {
-            $files = Get-ChildItem "release" -Force
+          if (Test-Path "desktop\release") {
+            $files = Get-ChildItem "desktop\release" -Force
+            Write-Host "📁 Conteúdo da pasta desktop/release:"
             foreach ($file in $files) {
               Write-Host "  - $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
             }
             
-            # Verificar pasta win-unpacked
-            if (Test-Path "release\win-unpacked") {
-              Write-Host "`n📁 Conteúdo da pasta win-unpacked:"
-              $winUnpackedFiles = Get-ChildItem "release\win-unpacked" -Force
-              foreach ($file in $winUnpackedFiles) {
-                Write-Host "  - $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
-              }
-            }
-            
             Write-Host "`n🔍 Arquivos por tipo:"
-            $exeFiles = Get-ChildItem "release\win-unpacked\*.exe" -ErrorAction SilentlyContinue
-            $dllFiles = Get-ChildItem "release\win-unpacked\*.dll" -ErrorAction SilentlyContinue
+            $exeFiles = Get-ChildItem "desktop\release\*.exe" -ErrorAction SilentlyContinue
+            $dllFiles = Get-ChildItem "desktop\release\*.dll" -ErrorAction SilentlyContinue
+            $apiFiles = Get-ChildItem "desktop\release\FirebirdApi.*" -ErrorAction SilentlyContinue
             
             Write-Host "Executáveis (.exe): $($exeFiles.Count) arquivos"
             Write-Host "Bibliotecas (.dll): $($dllFiles.Count) arquivos"
-            
-            # Nota sobre arquivos empacotados
-            Write-Host "`nℹ️  Nota: O electron-builder está gerando apenas o executável desempacotado"
-            Write-Host "   devido ao code signing. Os arquivos .exe, .zip e .7z empacotados"
-            Write-Host "   não estão sendo gerados neste momento."
+            Write-Host "Arquivos da API: $($apiFiles.Count) arquivos"
             
             # Salvar nomes dos arquivos para uso posterior
             if ($exeFiles.Count -gt 0) {
@@ -107,7 +135,7 @@ jobs:
               Write-Host "📦 Arquivo .exe principal: $exeFile"
             }
           } else {
-            Write-Host "❌ Pasta release não encontrada!"
+            Write-Host "❌ Pasta desktop/release não encontrada!"
             exit 1
           }
 
@@ -139,7 +167,7 @@ jobs:
         run: |
           Write-Host "🔍 Verificando arquivos antes do upload..."
           
-          $exePath = "release\win-unpacked\$env:EXE_FILE_NAME"
+          $exePath = "desktop\release\$env:EXE_FILE_NAME"
           
           if (-not (Test-Path $exePath)) {
             Write-Host "❌ Arquivo .exe não encontrado: $exePath"
@@ -156,6 +184,14 @@ jobs:
           if ($fileSize -lt 100MB) {
             Write-Host "⚠️  Executável parece muito pequeno, pode estar corrompido"
           }
+          
+          # Verificar se os arquivos da API estão presentes
+          $apiExe = "desktop\release\FirebirdApi.exe"
+          if (Test-Path $apiExe) {
+            Write-Host "✅ Arquivo da API encontrado: $apiExe"
+          } else {
+            Write-Host "⚠️  Arquivo da API não encontrado: $apiExe"
+          }
 
       - name: Upload NSIS Installer
         uses: actions/upload-release-asset@v1
@@ -163,7 +199,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: release/win-unpacked/${{ env.EXE_FILE_NAME }}
+          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
           asset_name: DashBird-Windows-Installer-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
@@ -173,7 +209,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: release/win-unpacked/${{ env.EXE_FILE_NAME }}
+          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
           asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
@@ -184,5 +220,6 @@ jobs:
         with:
           name: desktop-windows
           path: |
-            release/win-unpacked/*.exe
+            desktop/release/*.exe
+            desktop/release/FirebirdApi.*
 
