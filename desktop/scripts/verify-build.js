@@ -15,6 +15,35 @@ const distPath = path.join(__dirname, '../dist');
 const distElectronPath = path.join(__dirname, '../dist-electron');
 const apiDistPath = path.join(__dirname, '../api-dist');
 
+// Função para encontrar executáveis recursivamente
+function findExecutables(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  
+  const executables = [];
+  
+  function scanDirectory(currentPath) {
+    const items = fs.readdirSync(currentPath);
+    
+    items.forEach(item => {
+      const fullPath = path.join(currentPath, item);
+      const stats = fs.statSync(fullPath);
+      
+      if (stats.isDirectory()) {
+        scanDirectory(fullPath);
+      } else if (item.endsWith('.exe')) {
+        executables.push({
+          name: item,
+          path: fullPath,
+          size: stats.size
+        });
+      }
+    });
+  }
+  
+  scanDirectory(dirPath);
+  return executables;
+}
+
 // Verificações
 const checks = [
   {
@@ -108,6 +137,74 @@ if (fs.existsSync(releasePath)) {
   if (exeFiles.length === 0) {
     console.error('❌ Nenhum arquivo .exe encontrado na pasta release!');
     allChecksPassed = false;
+  }
+  
+  // Verificar se os arquivos da API estão presentes na pasta release
+  console.log('\n🔍 Verificando arquivos da API na pasta release:');
+  const apiExeInRelease = path.join(releasePath, 'FirebirdApi.exe');
+  if (fs.existsSync(apiExeInRelease)) {
+    const stats = fs.statSync(apiExeInRelease);
+    console.log(`✅ FirebirdApi.exe encontrado em release (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+  } else {
+    console.log('⚠️  FirebirdApi.exe não encontrado em release, mas pode estar em subpasta');
+    
+    // Verificar se está em subpasta api-dist
+    const apiDistInRelease = path.join(releasePath, 'api-dist', 'FirebirdApi.exe');
+    if (fs.existsSync(apiDistInRelease)) {
+      const stats = fs.statSync(apiDistInRelease);
+      console.log(`✅ FirebirdApi.exe encontrado em release/api-dist (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+    } else {
+      console.log('⚠️  FirebirdApi.exe não encontrado em release/api-dist');
+    }
+  }
+  
+  // Verificar se os arquivos do Electron estão presentes na pasta release
+  console.log('\n🔍 Verificando arquivos do Electron na pasta release:');
+  const distInRelease = path.join(releasePath, 'dist');
+  const distElectronInRelease = path.join(releasePath, 'dist-electron');
+  
+  if (fs.existsSync(distInRelease)) {
+    console.log('✅ Pasta dist encontrada em release');
+    const distFiles = fs.readdirSync(distInRelease);
+    console.log(`   - ${distFiles.length} arquivo(s)/pasta(s) encontrado(s)`);
+  }
+  
+  if (fs.existsSync(distElectronInRelease)) {
+    console.log('✅ Pasta dist-electron encontrada em release');
+    const distElectronFiles = fs.readdirSync(distElectronInRelease);
+    console.log(`   - ${distElectronFiles.length} arquivo(s)/pasta(s) encontrado(s)`);
+  }
+  
+  // Verificar especificamente o Dash Bird.exe
+  console.log('\n🎯 Verificando Dash Bird.exe especificamente:');
+  const dashBirdExe = path.join(releasePath, 'Dash Bird.exe');
+  if (fs.existsSync(dashBirdExe)) {
+    const stats = fs.statSync(dashBirdExe);
+    console.log(`✅ Dash Bird.exe encontrado na raiz de release (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+  } else {
+    console.log('⚠️  Dash Bird.exe não encontrado na raiz de release');
+    
+    // Procurar em toda a pasta release
+    const allExecutables = findExecutables(releasePath);
+    const dashBirdExeFound = allExecutables.find(exe => exe.name === 'Dash Bird.exe');
+    
+    if (dashBirdExeFound) {
+      console.log(`✅ Dash Bird.exe encontrado em: ${dashBirdExeFound.path}`);
+      console.log(`   Tamanho: ${(dashBirdExeFound.size / 1024 / 1024).toFixed(2)} MB`);
+      
+      // Se não estiver na raiz, copiar para lá
+      if (!dashBirdExeFound.path.includes('Dash Bird.exe')) {
+        try {
+          fs.copyFileSync(dashBirdExeFound.path, dashBirdExe);
+          console.log('✅ Dash Bird.exe copiado para a raiz de release');
+        } catch (error) {
+          console.log(`⚠️  Erro ao copiar Dash Bird.exe: ${error.message}`);
+        }
+      }
+    } else {
+      console.log('❌ Dash Bird.exe não encontrado em lugar nenhum da pasta release');
+      allChecksPassed = false;
+    }
   }
 }
 

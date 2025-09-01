@@ -64,45 +64,8 @@ jobs:
       - name: Build Windows artifacts
         run: pnpm run build:windows
 
-      - name: Garantir pasta release
-        run: mkdir -p desktop/release
-        shell: bash
-
-      - name: Consolidar artefatos de build
-        shell: pwsh
-        run: |
-          Write-Host "📁 Consolidando artefatos de build em desktop/release..."
-          
-          # Garantir que a pasta release existe
-          if (-not (Test-Path "desktop\release")) {
-            New-Item -ItemType Directory -Path "desktop\release" -Force
-          }
-          
-          # Copiar arquivos da API se não existirem
-          if (Test-Path "api-dist") {
-            Write-Host "📦 Copiando arquivos da API..."
-            Copy-Item -Path "api-dist\*" -Destination "desktop\release\" -Recurse -Force
-          }
-          
-          # Copiar arquivos do build do Electron se não existirem
-          if (Test-Path "dist") {
-            Write-Host "📦 Copiando arquivos do build do Electron..."
-            Copy-Item -Path "dist\*" -Destination "desktop\release\" -Recurse -Force
-          }
-          
-          # Copiar arquivos do dist-electron se não existirem
-          if (Test-Path "dist-electron") {
-            Write-Host "📦 Copiando arquivos do dist-electron..."
-            Copy-Item -Path "dist-electron\*" -Destination "desktop\release\" -Recurse -Force
-          }
-          
-          # Verificar se a pasta win-unpacked foi criada pelo electron-builder
-          if (Test-Path "release\win-unpacked") {
-            Write-Host "📦 Copiando executável do win-unpacked..."
-            Copy-Item -Path "release\win-unpacked\*.exe" -Destination "desktop\release\" -Force
-          }
-          
-          Write-Host "✅ Artefatos consolidados em desktop/release"
+      - name: Consolidar artefatos usando script
+        run: node scripts/consolidate-build.js
 
       - name: Verify build integrity
         run: pnpm run verify:build
@@ -110,23 +73,49 @@ jobs:
       - name: List generated files
         shell: pwsh
         run: |
-          Write-Host "📁 Verificando arquivos gerados em desktop/release..."
+          Write-Host "📁 Verificando arquivos gerados em release..."
           
-          if (Test-Path "desktop\release") {
-            $files = Get-ChildItem "desktop\release" -Force
-            Write-Host "📁 Conteúdo da pasta desktop/release:"
+          if (Test-Path "release") {
+            $files = Get-ChildItem "release" -Force
+            Write-Host "📁 Conteúdo da pasta release:"
             foreach ($file in $files) {
-              Write-Host "  - $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
+              if ($file.PSIsContainer) {
+                Write-Host "  📁 $($file.Name)/ (diretório)"
+              } else {
+                Write-Host "  📄 $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
+              }
+            }
+            
+            # Verificar subpastas importantes
+            $subdirs = @("api-dist", "dist", "dist-electron", "win-unpacked")
+            foreach ($subdir in $subdirs) {
+              $subdirPath = "release\$subdir"
+              if (Test-Path $subdirPath) {
+                Write-Host "`n📁 Conteúdo de $subdir:"
+                $subdirFiles = Get-ChildItem $subdirPath -Force
+                foreach ($file in $subdirFiles) {
+                  if ($file.PSIsContainer) {
+                    Write-Host "  📁 $($file.Name)/ (diretório)"
+                  } else {
+                    Write-Host "  📄 $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
+                  }
+                }
+              }
             }
             
             Write-Host "`n🔍 Arquivos por tipo:"
-            $exeFiles = Get-ChildItem "desktop\release\*.exe" -ErrorAction SilentlyContinue
-            $dllFiles = Get-ChildItem "desktop\release\*.dll" -ErrorAction SilentlyContinue
-            $apiFiles = Get-ChildItem "desktop\release\FirebirdApi.*" -ErrorAction SilentlyContinue
+            $exeFiles = Get-ChildItem "release\*.exe" -ErrorAction SilentlyContinue
+            $dllFiles = Get-ChildItem "release\*.dll" -ErrorAction SilentlyContinue
+            $apiFiles = Get-ChildItem "release\FirebirdApi.*" -ErrorAction SilentlyContinue
             
             Write-Host "Executáveis (.exe): $($exeFiles.Count) arquivos"
+            $exeFiles | ForEach-Object { Write-Host "   - $($_.Name)" }
+            
             Write-Host "Bibliotecas (.dll): $($dllFiles.Count) arquivos"
+            $dllFiles | ForEach-Object { Write-Host "   - $($_.Name)" }
+            
             Write-Host "Arquivos da API: $($apiFiles.Count) arquivos"
+            $apiFiles | ForEach-Object { Write-Host "   - $($_.Name)" }
             
             # Salvar nomes dos arquivos para uso posterior
             if ($exeFiles.Count -gt 0) {
@@ -134,8 +123,28 @@ jobs:
               echo "EXE_FILE_NAME=$exeFile" >> $env:GITHUB_ENV
               Write-Host "📦 Arquivo .exe principal: $exeFile"
             }
+            
+            # Verificar especificamente o Dash Bird.exe
+            $dashBirdExe = "release\Dash Bird.exe"
+            if (Test-Path $dashBirdExe) {
+              $stats = Get-Item $dashBirdExe
+              Write-Host "✅ Dash Bird.exe encontrado: $($stats.Length) bytes"
+              echo "DASH_BIRD_EXE_PATH=$dashBirdExe" >> $env:GITHUB_ENV
+            } else {
+              Write-Host "⚠️  Dash Bird.exe não encontrado em release"
+              
+              # Verificar se está em win-unpacked
+              $winUnpackedExe = "release\win-unpacked\Dash Bird.exe"
+              if (Test-Path $winUnpackedExe) {
+                $stats = Get-Item $winUnpackedExe
+                Write-Host "✅ Dash Bird.exe encontrado em win-unpacked: $($stats.Length) bytes"
+                echo "DASH_BIRD_EXE_PATH=$winUnpackedExe" >> $env:GITHUB_ENV
+              } else {
+                Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
+              }
+            }
           } else {
-            Write-Host "❌ Pasta desktop/release não encontrada!"
+            Write-Host "❌ Pasta release não encontrada!"
             exit 1
           }
 
@@ -167,7 +176,13 @@ jobs:
         run: |
           Write-Host "🔍 Verificando arquivos antes do upload..."
           
-          $exePath = "desktop\release\$env:EXE_FILE_NAME"
+          # Verificar se temos o caminho do Dash Bird.exe
+          if (-not $env:DASH_BIRD_EXE_PATH) {
+            Write-Host "❌ Caminho do Dash Bird.exe não definido!"
+            exit 1
+          }
+          
+          $exePath = $env:DASH_BIRD_EXE_PATH
           
           if (-not (Test-Path $exePath)) {
             Write-Host "❌ Arquivo .exe não encontrado: $exePath"
@@ -186,7 +201,7 @@ jobs:
           }
           
           # Verificar se os arquivos da API estão presentes
-          $apiExe = "desktop\release\FirebirdApi.exe"
+          $apiExe = "release\FirebirdApi.exe"
           if (Test-Path $apiExe) {
             Write-Host "✅ Arquivo da API encontrado: $apiExe"
           } else {
@@ -199,7 +214,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
+          asset_path: ${{ env.DASH_BIRD_EXE_PATH }}
           asset_name: DashBird-Windows-Installer-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
@@ -209,17 +224,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
+          asset_path: ${{ env.DASH_BIRD_EXE_PATH }}
           asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
-
-
 
       - name: Upload artifacts (Backup)
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
           path: |
-            desktop/release/*.exe
-            desktop/release/FirebirdApi.*
+            release/*.exe
+            release/FirebirdApi.*
 

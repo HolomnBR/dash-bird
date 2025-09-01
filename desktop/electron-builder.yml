@@ -16,7 +16,7 @@ win:
   target:
     - nsis
     - portable
-  artifactName: "DashBird-${version}-${arch}.${ext}"
+  artifactName: "Dash Bird.${ext}"
 nsis:
   oneClick: false
   perMachine: false
