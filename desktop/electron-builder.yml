@@ -12,6 +12,7 @@ extraResources:
     to: api-dist
 asar: true
 win:
+  forceCodeSigning: false
   target:
     - nsis
     - portable

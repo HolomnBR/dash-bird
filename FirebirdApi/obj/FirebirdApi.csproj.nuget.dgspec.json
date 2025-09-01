@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj": {}
+    "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj": {}
   },
   "projects": {
-    "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj": {
+    "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj",
+        "projectUniqueName": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
         "projectName": "FirebirdApi",
-        "projectPath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj",
+        "projectPath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
         "packagesPath": "C:\\Users\\Lucas Argate\\.nuget\\packages\\",
-        "outputPath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\obj\\",
+        "outputPath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FirebirdApi\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\Lucas Argate\\AppData\\Roaming\\NuGet\\NuGet.Config"
