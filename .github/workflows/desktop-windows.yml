@@ -66,32 +66,27 @@ jobs:
           echo "📁 Arquivos gerados em desktop/release:"
           dir release
 
-      # 3. CREATE RELEASE
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ github.run_number }}
-          release_name: DashBird Windows Build v${{ github.run_number }}
-          body: |
-            🚀 Build automático do DashBird para Windows
-
-            **Build Number:** ${{ github.run_number }}
-            **Commit:** ${{ github.sha }}
-            **Branch:** ${{ github.ref_name }}
-
-            📦 **Artefatos incluídos:**
-            - Instalador e/ou versão portátil para Windows.
-            
-            ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
-          draft: false
-          prerelease: false
-
-      # 4. UPLOAD ASSETS
-      - name: Upload Release Assets
+      # 3. CREATE AND PUBLISH RELEASE
+      - name: Create and Publish Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v${{ github.run_number }} release/*.* --clobber
+          # Create a temporary file with the release notes
+          cat <<'EOF' > release-notes.md
+          🚀 Build automático do DashBird para Windows
+
+          **Build Number:** ${{ github.run_number }}
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+
+          📦 **Artefatos incluídos:**
+          - Instalador e/ou versão portátil para Windows.
+          
+          ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
+          EOF
+
+          # Create a new release and upload all files from the release folder in one go.
+          gh release create v${{ github.run_number }} release/*.* \
+            --title "DashBird Windows Build v${{ github.run_number }}" \
+            --notes-file release-notes.md \
+            --latest
