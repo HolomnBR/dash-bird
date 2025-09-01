@@ -91,7 +91,7 @@ jobs:
             foreach ($subdir in $subdirs) {
               $subdirPath = "release\$subdir"
               if (Test-Path $subdirPath) {
-                Write-Host "`n📁 Conteúdo de $subdir:"
+                Write-Host "`n📁 Conteúdo de $($subdir):"
                 $subdirFiles = Get-ChildItem $subdirPath -Force
                 foreach ($file in $subdirFiles) {
                   if ($file.PSIsContainer) {
