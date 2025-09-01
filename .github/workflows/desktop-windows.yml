@@ -138,7 +138,8 @@ jobs:
                 Write-Host "✅ Dash Bird.exe encontrado: $($exeFile.Name)"
                 # Usar caminho relativo para o working directory
                 $relativePath = $exeFile.Name
-                echo "DASH_BIRD_EXE_PATH=$relativePath" >> $env:GITHUB_ENV
+                echo "UPLOAD_EXE_PATH=$relativePath" >> $env:GITHUB_ENV
+                Write-Host "✅ Variável UPLOAD_EXE_PATH definida: $relativePath"
                 break
               }
             }
@@ -152,7 +153,8 @@ jobs:
                 $stats = Get-Item $winUnpackedExe
                 Write-Host "✅ Dash Bird.exe encontrado em win-unpacked: $($stats.Length) bytes"
                 # Usar caminho relativo para o working directory
-                echo "DASH_BIRD_EXE_PATH=win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
+                echo "UPLOAD_EXE_PATH=win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
+                Write-Host "✅ Variável UPLOAD_EXE_PATH definida: win-unpacked\Dash Bird.exe"
               } else {
                 Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
                 
@@ -163,6 +165,9 @@ jobs:
                 }
               }
             }
+            
+            # Debug: mostrar o valor final da variável
+            Write-Host "🔍 Valor final de UPLOAD_EXE_PATH: $env:UPLOAD_EXE_PATH"
           } else {
             Write-Host "❌ Pasta release não encontrada!"
             exit 1
@@ -197,16 +202,31 @@ jobs:
           Write-Host "🔍 Verificando arquivos antes do upload..."
           Write-Host "📁 Diretório atual: $(Get-Location)"
           
+          # Debug: mostrar todas as variáveis de ambiente
+          Write-Host "🔍 Variáveis de ambiente disponíveis:"
+          Write-Host "UPLOAD_EXE_PATH: $env:UPLOAD_EXE_PATH"
+          Write-Host "DASH_BIRD_EXE_PATH: $env:DASH_BIRD_EXE_PATH"
+          
           # Verificar se temos o caminho do Dash Bird.exe
-          if (-not $env:DASH_BIRD_EXE_PATH) {
+          if (-not $env:UPLOAD_EXE_PATH) {
             Write-Host "❌ Caminho do Dash Bird.exe não definido!"
-            exit 1
+            Write-Host "🔍 Tentando usar DASH_BIRD_EXE_PATH como fallback..."
+            if ($env:DASH_BIRD_EXE_PATH) {
+              $env:UPLOAD_EXE_PATH = $env:DASH_BIRD_EXE_PATH
+              Write-Host "✅ Usando DASH_BIRD_EXE_PATH como fallback: $env:UPLOAD_EXE_PATH"
+            } else {
+              Write-Host "❌ Nenhuma variável de caminho definida!"
+              exit 1
+            }
           }
           
-          $exePath = $env:DASH_BIRD_EXE_PATH
+          $exePath = $env:UPLOAD_EXE_PATH
+          Write-Host "📁 Caminho do executável: $exePath"
           
           if (-not (Test-Path $exePath)) {
             Write-Host "❌ Arquivo .exe não encontrado: $exePath"
+            Write-Host "🔍 Listando arquivos no diretório atual:"
+            Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
             exit 1
           }
           
@@ -229,22 +249,7 @@ jobs:
             Write-Host "⚠️  Arquivo da API não encontrado: $apiExe"
           }
           
-          # Verificar se o Dash Bird.exe está na raiz do release
-          $dashBirdExe = "Dash Bird.exe"
-          if (Test-Path $dashBirdExe) {
-            Write-Host "✅ Dash Bird.exe encontrado na raiz: $dashBirdExe"
-            $stats = Get-Item $dashBirdExe
-            Write-Host "📦 Tamanho: $([math]::Round($stats.Length / 1MB, 2)) MB"
-            
-            # Definir o caminho correto para o upload
-            echo "UPLOAD_EXE_PATH=$dashBirdExe" >> $env:GITHUB_ENV
-            Write-Host "✅ Caminho para upload definido: $dashBirdExe"
-          } else {
-            Write-Host "❌ Dash Bird.exe não encontrado na raiz: $dashBirdExe"
-            Write-Host "🔍 Listando arquivos no diretório atual:"
-            Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
-            exit 1
-          }
+          Write-Host "✅ Verificação concluída com sucesso!"
 
       - name: Upload DashBird Executable
         uses: actions/upload-release-asset@v1
