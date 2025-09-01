@@ -31,8 +31,8 @@ win:
   requestedExecutionLevel: asInvoker
   artifactName: "${productName}-${version}-${arch}.${ext}"
   
-  # Ícone do aplicativo (usando o favicon.ico válido)
-  icon: "public/favicon.ico"
+  # Ícone do aplicativo (usando o app.ico válido)
+  icon: "public/app.ico"
 
 # Configurações do instalador NSIS (robusta e funcional)
 nsis:
@@ -41,9 +41,9 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "Dash Bird"
-  # Configurações de ícones usando o favicon.ico válido
-  installerIcon: "public/favicon.ico"
-  uninstallerIcon: "public/favicon.ico"
+  # Configurações de ícones usando o app.ico válido
+  installerIcon: "public/app.ico"
+  uninstallerIcon: "public/app.ico"
   # Removendo referências a arquivos que não existem
   # include: "build/installer.nsh"
   # script: "build/installer.nsi"

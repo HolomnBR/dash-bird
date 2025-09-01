@@ -135,7 +135,7 @@ desktop/
 │   ├── test-nsis-config.js        # Teste de configuração NSIS
 │   └── verify-build.js            # Verificação de build
 ├── public/
-│   ├── favicon.ico                # Ícone do aplicativo (formato .ico)
+│   ├── app.ico                    # Ícone do aplicativo (formato .ico)
 │   └── vite.svg                   # Ícone do Vite (não usado no build)
 ├── private/                        # Diretório para certificados (criado automaticamente)
 ├── electron-builder.yml            # Configuração do electron-builder
@@ -147,7 +147,7 @@ desktop/
 ## 🎨 Configuração de Ícones
 
 ### Ícone do Aplicativo
-- **Arquivo:** `public/favicon.ico` (formato .ico obrigatório)
+- **Arquivo:** `public/app.ico` (formato .ico obrigatório)
 - **Uso:** Ícone principal do aplicativo, instalador e desinstalador
 - **Formato:** Deve ser um arquivo .ico válido do Windows
 - **Tamanho:** Recomendado 256x256 pixels ou múltiplos tamanhos incluídos

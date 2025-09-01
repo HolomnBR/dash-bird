@@ -45,7 +45,7 @@ try {
         { name: 'build/installer.nsh', pattern: /build\/installer\.nsh/, shouldExist: false },
         { name: 'build/installer.nsi', pattern: /build\/installer\.nsi/, shouldExist: false },
         { name: 'LICENSE', pattern: /LICENSE/, shouldExist: true },
-        { name: 'public/favicon.ico', pattern: /public\/favicon\.ico/, shouldExist: true }
+        { name: 'public/app.ico', pattern: /public\/app\.ico/, shouldExist: true }
     ];
     
     for (const check of fileChecks) {
@@ -69,17 +69,17 @@ try {
     console.log('\n🔍 Verificando configurações de ícones...');
     
     const iconChecks = [
-        { name: 'installerIcon', pattern: /installerIcon:/, shouldExist: true, expectedValue: 'public/favicon.ico' },
-        { name: 'uninstallerIcon', pattern: /uninstallerIcon:/, shouldExist: true, expectedValue: 'public/favicon.ico' }
+        { name: 'installerIcon', pattern: /installerIcon:/, shouldExist: true, expectedValue: 'public/app.ico' },
+        { name: 'uninstallerIcon', pattern: /uninstallerIcon:/, shouldExist: true, expectedValue: 'public/app.ico' }
     ];
     
     for (const check of iconChecks) {
         if (check.pattern.test(configContent)) {
-            // Verificar se está apontando para o favicon.ico
+            // Verificar se está apontando para o app.ico
             if (configContent.includes(check.expectedValue)) {
                 console.log(`✅ ${check.name}: Configurado corretamente (${check.expectedValue})`);
             } else {
-                console.log(`⚠️  ${check.name}: Configurado mas não aponta para favicon.ico`);
+                console.log(`⚠️  ${check.name}: Configurado mas não aponta para app.ico`);
                 allChecksPass = false;
             }
         } else {
@@ -89,9 +89,9 @@ try {
     }
     
     // Verificar se o ícone principal do aplicativo está configurado
-    const appIconPattern = /icon:\s*"public\/favicon\.ico"/;
+    const appIconPattern = /icon:\s*"public\/app\.ico"/;
     if (appIconPattern.test(configContent)) {
-        console.log('✅ Ícone principal do aplicativo: Configurado (public/favicon.ico)');
+        console.log('✅ Ícone principal do aplicativo: Configurado (public/app.ico)');
     } else {
         console.log('❌ Ícone principal do aplicativo: Não configurado');
         allChecksPass = false;
@@ -109,10 +109,10 @@ try {
         allChecksPass = false;
     }
     
-    if (fs.existsSync('public/favicon.ico')) {
-        console.log('✅ public/favicon.ico: Arquivo existe');
+    if (fs.existsSync('public/app.ico')) {
+        console.log('✅ public/app.ico: Arquivo existe');
     } else {
-        console.log('❌ public/favicon.ico: Arquivo não encontrado');
+        console.log('❌ public/app.ico: Arquivo não encontrado');
         allChecksPass = false;
     }
     
