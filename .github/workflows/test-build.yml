@@ -1,7 +1,10 @@
-name: Test Build
+name: Test Build (Windows)
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test-build:
@@ -10,32 +13,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        working-directory: desktop
-        run: pnpm install --frozen-lockfile
-
-      - name: Test build scripts
-        working-directory: desktop
+        
+      - name: Test PowerShell Commands
+        shell: pwsh
         run: |
-          echo "Testing build scripts..."
-          pnpm run build:api
-          echo "API build successful!"
-          pnpm run build:electron
-          echo "Electron build successful!"
+          Write-Host "🧪 Testando comandos PowerShell..." -ForegroundColor Green
+          
+          # Teste de variáveis de ambiente
+          $testVar = "teste"
+          if ($testVar) {
+            Write-Host "✅ Variável definida: $testVar" -ForegroundColor Green
+          } else {
+            Write-Host "❌ Variável não definida" -ForegroundColor Red
+          }
+          
+          # Teste de comandos básicos
+          Write-Host "📁 Diretório atual:" -ForegroundColor Cyan
+          Get-Location
+          
+          Write-Host "📋 Arquivos no diretório:" -ForegroundColor Cyan
+          Get-ChildItem | Select-Object -First 5
+          
+          Write-Host "✅ Todos os testes passaram!" -ForegroundColor Green

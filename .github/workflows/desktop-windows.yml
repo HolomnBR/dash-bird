@@ -53,6 +53,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
+        shell: pwsh
         run: pnpm install --frozen-lockfile
 
       # 1. BUILD COM ASSINATURA DIGITAL
@@ -69,41 +70,44 @@ jobs:
           # Variáveis de ambiente para build
           NODE_ENV: production
           ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+        shell: pwsh
         run: |
-          echo "🔐 Iniciando build com assinatura digital..."
-          echo "📋 Verificando variáveis de ambiente..."
-          if [ -n "$CSC_LINK" ]; then
-            echo "✅ Certificado configurado"
-          else
-            echo "⚠️  Certificado não configurado - build sem assinatura"
-          fi
+          Write-Host "🔐 Iniciando build com assinatura digital..." -ForegroundColor Green
+          Write-Host "📋 Verificando variáveis de ambiente..." -ForegroundColor Yellow
+          
+          if ($env:CSC_LINK) {
+            Write-Host "✅ Certificado configurado" -ForegroundColor Green
+          } else {
+            Write-Host "⚠️  Certificado não configurado - build sem assinatura" -ForegroundColor Yellow
+          }
           
           pnpm run build:windows
           
-          echo "✅ Build concluído com sucesso!"
+          Write-Host "✅ Build concluído com sucesso!" -ForegroundColor Green
       
       # 2. VERIFICAÇÃO DOS ARQUIVOS GERADOS
       - name: Verify build artifacts and code signing
+        shell: pwsh
         run: |
-          echo "🔍 Verificando arquivos gerados..."
+          Write-Host "🔍 Verificando arquivos gerados..." -ForegroundColor Yellow
           node scripts/verify-build.js
           
-          echo "📁 Arquivos gerados em desktop/release:"
-          dir release
+          Write-Host "📁 Arquivos gerados em desktop/release:" -ForegroundColor Cyan
+          Get-ChildItem release
           
-          echo "🔐 Verificando assinatura digital..."
+          Write-Host "🔐 Verificando assinatura digital..." -ForegroundColor Yellow
           if (Test-Path "release\*.exe") {
             Get-ChildItem "release\*.exe" | ForEach-Object {
-              echo "📋 Verificando: $($_.Name)"
+              Write-Host "📋 Verificando: $($_.Name)" -ForegroundColor White
               try {
                 $sig = Get-AuthenticodeSignature $_.FullName
                 if ($sig.Status -eq "Valid") {
-                  echo "✅ $($_.Name) - Assinatura válida"
+                  Write-Host "✅ $($_.Name) - Assinatura válida" -ForegroundColor Green
                 } else {
-                  echo "⚠️  $($_.Name) - Status: $($sig.Status)"
+                  Write-Host "⚠️  $($_.Name) - Status: $($sig.Status)" -ForegroundColor Yellow
                 }
               } catch {
-                echo "❌ Erro ao verificar assinatura: $_"
+                Write-Host "❌ Erro ao verificar assinatura: $_" -ForegroundColor Red
               }
             }
           }
@@ -142,4 +146,4 @@ jobs:
             --notes-file release-notes.md `
             --latest
           
-          echo "✅ Release criado com sucesso!"
+          Write-Host "✅ Release criado com sucesso!" -ForegroundColor Green
