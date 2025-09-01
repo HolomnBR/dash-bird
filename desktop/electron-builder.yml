@@ -6,6 +6,3 @@ files:
   - "dist/**/*"
   - "dist-electron/**/*"
   - "api-dist/**/*"
-publish:
-  provider: github
-  # owner e repo são detectados automaticamente pelo CI do GitHub

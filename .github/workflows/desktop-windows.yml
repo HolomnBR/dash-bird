@@ -56,15 +56,45 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # 1. BUILD
-      - name: Build app
-        env:
-          # O GITHUB_TOKEN é necessário para que o electron-builder possa autenticar e criar o release.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm run build:windows --publish always
+      - name: Build application artifacts
+        run: pnpm run build:windows
       
-      # Opcional: Verificação pós-build
+      # 2. VERIFY
       - name: Verify build artifacts
         run: |
           node scripts/verify-build.js
           echo "📁 Arquivos gerados em desktop/release:"
           dir release
+
+      # 3. CREATE RELEASE
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: DashBird Windows Build v${{ github.run_number }}
+          body: |
+            🚀 Build automático do DashBird para Windows
+
+            **Build Number:** ${{ github.run_number }}
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref_name }}
+
+            📦 **Artefatos incluídos:**
+            - Instalador e/ou versão portátil para Windows.
+            
+            ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
+          draft: false
+          prerelease: false
+
+      # 4. UPLOAD ASSETS
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./desktop/release/*.*
+          asset_content_type: application/octet-stream
