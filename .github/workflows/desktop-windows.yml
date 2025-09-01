@@ -59,43 +59,15 @@ jobs:
       - name: Build app
         run: pnpm run build:windows
       
-      - name: Consolidate build
-        run: node scripts/consolidate-build.js
+      - name: Verify build artifacts
+        run: node scripts/verify-build.js
 
-      # 2. PREPARE RELEASE
-      - name: Prepare release
-        shell: pwsh
+      - name: List generated files for debug
         run: |
-          Write-Host "📦 Preparando release..."
-          Write-Host "📁 Diretório atual: $(Get-Location)"
-          
-          # Listar arquivos para debug
-          Write-Host "📁 Conteúdo do diretório atual:"
-          Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
-          
-          # Verificar se a pasta release existe
-          if (Test-Path "release") {
-            Write-Host "📁 Conteúdo da pasta release:"
-            Get-ChildItem "release" | ForEach-Object { Write-Host "  - $($_.Name)" }
-            
-            # Definir caminho do executável para upload
-            if (Test-Path "release\Dash Bird.exe") {
-              echo "UPLOAD_EXE_PATH=release\Dash Bird.exe" >> $env:GITHUB_ENV
-              Write-Host "✅ Dash Bird.exe encontrado: release\Dash Bird.exe"
-            } elseif (Test-Path "release\win-unpacked\Dash Bird.exe") {
-              echo "UPLOAD_EXE_PATH=release\win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
-              Write-Host "✅ Dash Bird.exe encontrado: release\win-unpacked\Dash Bird.exe"
-            } else {
-              Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
-              Write-Host "🔍 Procurando por todos os arquivos .exe:"
-              Get-ChildItem "release" -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "  - $($_.FullName)" }
-              exit 1
-            }
-          } else {
-            Write-Host "❌ Pasta release não encontrada!"
-            exit 1
-          }
+          echo "📁 Arquivos gerados em desktop/release:"
+          dir release
 
+      # 2. CREATE RELEASE
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -112,21 +84,29 @@ jobs:
             **Branch:** ${{ github.ref_name }}
             
             📦 **Artefatos incluídos:**
-            - Executável principal (.exe)
-            - Versão portátil (.exe)
+            - Instalador e/ou versão portátil para Windows.
             
             ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
           draft: false
           prerelease: false
 
-      # 3. UPLOAD
-      - name: Upload DashBird Executable
-        uses: actions/upload-release-asset@v1
+      # 3. UPLOAD ARTIFACTS
+      - name: Upload Release Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.UPLOAD_EXE_PATH }}
-          asset_name: DashBird-Windows-v${{ github.run_number }}.exe
-          asset_content_type: application/octet-stream
-
+        shell: pwsh
+        run: |
+          # O working-directory aqui é 'desktop', então os caminhos são relativos a ele.
+          # A action 'upload-release-asset' não é usada aqui, fazemos o upload via API para ter mais controle.
+          $headers = @{
+            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
+            "Accept" = "application/vnd.github.v3+json"
+          }
+          
+          Get-ChildItem "release" -File | Where-Object { $_.Extension -in ".exe", ".zip", ".7z", ".blockmap" } | ForEach-Object {
+            $assetPath = $_.FullName
+            $assetName = $_.Name
+            $uploadUrl = "${{ steps.create_release.outputs.upload_url }}?name=$assetName"
+            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -InFile $assetPath -ContentType "application/octet-stream"
+            Write-Host "✅ Uploaded $assetName"
+          }
