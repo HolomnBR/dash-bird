@@ -91,10 +91,10 @@ jobs:
 
       # 4. UPLOAD ASSETS
       - name: Upload Release Assets
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: svenstaro/upload-release-assets@v1
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./desktop/release/*.*
-          asset_content_type: application/octet-stream
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ github.run_number }}
+          file: desktop/release/*.*
+          file_glob: true
+          overwrite: true

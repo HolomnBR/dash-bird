@@ -175,36 +175,24 @@ if (fs.existsSync(releasePath)) {
     console.log(`   - ${distElectronFiles.length} arquivo(s)/pasta(s) encontrado(s)`);
   }
   
-  // Verificar especificamente o Dash Bird.exe
-  console.log('\n🎯 Verificando Dash Bird.exe especificamente:');
-  const dashBirdExe = path.join(releasePath, 'Dash Bird.exe');
-  if (fs.existsSync(dashBirdExe)) {
-    const stats = fs.statSync(dashBirdExe);
-    console.log(`✅ Dash Bird.exe encontrado na raiz de release (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+  // Verificar especificamente o instalador e o executável descompactado
+  console.log('\n🎯 Verificando artefatos de build específicos:');
+  const setupFiles = releaseFiles.filter(f => f.match(/^Dash Bird Setup.*\.exe$/));
+
+  if (setupFiles.length > 0) {
+    const setupFile = setupFiles[0];
+    const setupFilePath = path.join(releasePath, setupFile);
+    const stats = fs.statSync(setupFilePath);
+    console.log(`✅ Instalador principal encontrado: ${setupFile} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
   } else {
-    console.log('⚠️  Dash Bird.exe não encontrado na raiz de release');
-    
-    // Procurar em toda a pasta release
-    const allExecutables = findExecutables(releasePath);
-    const dashBirdExeFound = allExecutables.find(exe => exe.name === 'Dash Bird.exe');
-    
-    if (dashBirdExeFound) {
-      console.log(`✅ Dash Bird.exe encontrado em: ${dashBirdExeFound.path}`);
-      console.log(`   Tamanho: ${(dashBirdExeFound.size / 1024 / 1024).toFixed(2)} MB`);
-      
-      // Se não estiver na raiz, copiar para lá
-      if (!dashBirdExeFound.path.includes('Dash Bird.exe')) {
-        try {
-          fs.copyFileSync(dashBirdExeFound.path, dashBirdExe);
-          console.log('✅ Dash Bird.exe copiado para a raiz de release');
-        } catch (error) {
-          console.log(`⚠️  Erro ao copiar Dash Bird.exe: ${error.message}`);
-        }
-      }
-    } else {
-      console.log('❌ Dash Bird.exe não encontrado em lugar nenhum da pasta release');
-      allChecksPassed = false;
-    }
+    console.error('❌ Nenhum arquivo de setup (ex: "Dash Bird Setup X.Y.Z.exe") foi encontrado na pasta release.');
+    allChecksPassed = false;
+  }
+
+  const unpackedExePath = path.join(releasePath, 'win-unpacked', 'Dash Bird.exe');
+  if (fs.existsSync(unpackedExePath)) {
+    const stats = fs.statSync(unpackedExePath);
+    console.log(`✅ Executável descompactado encontrado: win-unpacked/Dash Bird.exe (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
   }
 }
 
@@ -215,6 +203,3 @@ if (allChecksPassed) {
   console.error('\n❌ Algumas verificações falharam. Verifique o build.');
   process.exit(1);
 }
-
-
-
