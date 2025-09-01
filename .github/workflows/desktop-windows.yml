@@ -103,10 +103,25 @@ jobs:
             "Accept" = "application/vnd.github.v3+json"
           }
           
-          Get-ChildItem "release" -File | Where-Object { $_.Extension -in ".exe", ".zip", ".7z", ".blockmap" } | ForEach-Object {
-            $assetPath = $_.FullName
-            $assetName = $_.Name
+          $filesToUpload = Get-ChildItem "release" -File | Where-Object { $_.Extension -in ".exe", ".zip", ".7z", ".blockmap" }
+          
+          if ($null -eq $filesToUpload) {
+            Write-Error "❌ Nenhum artefato de build encontrado na pasta 'release' para upload."
+            exit 1
+          }
+
+          foreach ($file in $filesToUpload) {
+            $assetPath = $file.FullName
+            $assetName = $file.Name
             $uploadUrl = "${{ steps.create_release.outputs.upload_url }}?name=$assetName"
-            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -InFile $assetPath -ContentType "application/octet-stream"
-            Write-Host "✅ Uploaded $assetName"
+            $contentType = switch ($file.Extension) {
+              ".zip"    { "application/zip" }
+              ".7z"     { "application/x-7z-compressed" }
+              default   { "application/octet-stream" }
+            }
+
+            Write-Host "📤 Fazendo upload de '$assetName' com Content-Type '$contentType'..."
+            $fileBytes = [System.IO.File]::ReadAllBytes($assetPath)
+            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -Body $fileBytes -ContentType $contentType
+            Write-Host "✅ Upload de '$assetName' concluído com sucesso."
           }
