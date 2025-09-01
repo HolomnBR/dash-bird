@@ -125,13 +125,24 @@ jobs:
             }
             
             # Verificar especificamente o Dash Bird.exe
-            $dashBirdExe = "release\Dash Bird.exe"
-            if (Test-Path $dashBirdExe) {
-              $stats = Get-Item $dashBirdExe
-              Write-Host "✅ Dash Bird.exe encontrado: $($stats.Length) bytes"
-              echo "DASH_BIRD_EXE_PATH=$dashBirdExe" >> $env:GITHUB_ENV
-            } else {
-              Write-Host "⚠️  Dash Bird.exe não encontrado em release"
+            Write-Host "🔍 Procurando por executáveis Dash Bird..."
+            
+            # Procurar por todos os arquivos .exe na pasta release
+            $allExeFiles = Get-ChildItem "release\*.exe" -ErrorAction SilentlyContinue
+            $dashBirdExe = $null
+            
+            foreach ($exeFile in $allExeFiles) {
+              Write-Host "  📄 Encontrado: $($exeFile.Name)"
+              if ($exeFile.Name -like "*Dash Bird*") {
+                $dashBirdExe = $exeFile.FullName
+                Write-Host "✅ Dash Bird.exe encontrado: $($exeFile.Name)"
+                echo "DASH_BIRD_EXE_PATH=$($exeFile.FullName)" >> $env:GITHUB_ENV
+                break
+              }
+            }
+            
+            if (-not $dashBirdExe) {
+              Write-Host "⚠️  Dash Bird.exe não encontrado na pasta release"
               
               # Verificar se está em win-unpacked
               $winUnpackedExe = "release\win-unpacked\Dash Bird.exe"
@@ -141,6 +152,12 @@ jobs:
                 echo "DASH_BIRD_EXE_PATH=$winUnpackedExe" >> $env:GITHUB_ENV
               } else {
                 Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
+                
+                # Listar todos os arquivos .exe para debug
+                Write-Host "🔍 Listando todos os arquivos .exe encontrados:"
+                Get-ChildItem "release" -Recurse -Filter "*.exe" | ForEach-Object {
+                  Write-Host "  📄 $($_.FullName)"
+                }
               }
             }
           } else {
@@ -214,7 +231,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.DASH_BIRD_EXE_PATH }}
+          asset_path: release/*Setup.exe
           asset_name: DashBird-Windows-Installer-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
@@ -224,7 +241,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.DASH_BIRD_EXE_PATH }}
+          asset_path: release/Dash Bird.exe
           asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
