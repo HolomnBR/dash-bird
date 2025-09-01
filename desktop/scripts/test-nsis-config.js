@@ -45,7 +45,7 @@ try {
         { name: 'build/installer.nsh', pattern: /build\/installer\.nsh/, shouldExist: false },
         { name: 'build/installer.nsi', pattern: /build\/installer\.nsi/, shouldExist: false },
         { name: 'LICENSE', pattern: /LICENSE/, shouldExist: true },
-        { name: 'public/vite.svg', pattern: /public\/vite\.svg/, shouldExist: true }
+        { name: 'public/favicon.ico', pattern: /public\/favicon\.ico/, shouldExist: true }
     ];
     
     for (const check of fileChecks) {
@@ -65,21 +65,36 @@ try {
         }
     }
     
-    // Verificar se as configurações de ícones foram removidas
+    // Verificar se as configurações de ícones estão configuradas corretamente
     console.log('\n🔍 Verificando configurações de ícones...');
     
     const iconChecks = [
-        { name: 'installerIcon', pattern: /installerIcon:/, shouldExist: false },
-        { name: 'uninstallerIcon', pattern: /uninstallerIcon:/, shouldExist: false }
+        { name: 'installerIcon', pattern: /installerIcon:/, shouldExist: true, expectedValue: 'public/favicon.ico' },
+        { name: 'uninstallerIcon', pattern: /uninstallerIcon:/, shouldExist: true, expectedValue: 'public/favicon.ico' }
     ];
     
     for (const check of iconChecks) {
         if (check.pattern.test(configContent)) {
-            console.log(`⚠️  ${check.name}: Ainda configurado (pode causar erro no NSIS)`);
-            allChecksPass = false;
+            // Verificar se está apontando para o favicon.ico
+            if (configContent.includes(check.expectedValue)) {
+                console.log(`✅ ${check.name}: Configurado corretamente (${check.expectedValue})`);
+            } else {
+                console.log(`⚠️  ${check.name}: Configurado mas não aponta para favicon.ico`);
+                allChecksPass = false;
+            }
         } else {
-            console.log(`✅ ${check.name}: Não configurado (correto para evitar erros)`);
+            console.log(`❌ ${check.name}: Não configurado`);
+            allChecksPass = false;
         }
+    }
+    
+    // Verificar se o ícone principal do aplicativo está configurado
+    const appIconPattern = /icon:\s*"public\/favicon\.ico"/;
+    if (appIconPattern.test(configContent)) {
+        console.log('✅ Ícone principal do aplicativo: Configurado (public/favicon.ico)');
+    } else {
+        console.log('❌ Ícone principal do aplicativo: Não configurado');
+        allChecksPass = false;
     }
     
     // Verificar se os arquivos realmente existem
@@ -94,10 +109,10 @@ try {
         allChecksPass = false;
     }
     
-    if (fs.existsSync('public/vite.svg')) {
-        console.log('✅ public/vite.svg: Arquivo existe');
+    if (fs.existsSync('public/favicon.ico')) {
+        console.log('✅ public/favicon.ico: Arquivo existe');
     } else {
-        console.log('❌ public/vite.svg: Arquivo não encontrado');
+        console.log('❌ public/favicon.ico: Arquivo não encontrado');
         allChecksPass = false;
     }
     
@@ -109,6 +124,7 @@ try {
     if (allChecksPass) {
         console.log('\n🎉 Configuração NSIS está correta!');
         console.log('🚀 O build deve funcionar sem erros de NSIS');
+        console.log('🎨 Ícones configurados corretamente com favicon.ico');
     } else {
         console.log('\n⚠️  Problemas encontrados na configuração NSIS!');
         console.log('🔧 Corrija os problemas acima antes de prosseguir');

@@ -132,12 +132,31 @@ desktop/
 ├── scripts/
 │   ├── build-with-signing.js      # Script principal de build
 │   ├── test-build-config.js       # Teste de configuração
+│   ├── test-nsis-config.js        # Teste de configuração NSIS
 │   └── verify-build.js            # Verificação de build
+├── public/
+│   ├── favicon.ico                # Ícone do aplicativo (formato .ico)
+│   └── vite.svg                   # Ícone do Vite (não usado no build)
 ├── private/                        # Diretório para certificados (criado automaticamente)
 ├── electron-builder.yml            # Configuração do electron-builder
 ├── package.json                    # Scripts e dependências
+├── LICENSE                         # Arquivo de licença
 └── env.example                     # Exemplo de variáveis de ambiente
 ```
+
+## 🎨 Configuração de Ícones
+
+### Ícone do Aplicativo
+- **Arquivo:** `public/favicon.ico` (formato .ico obrigatório)
+- **Uso:** Ícone principal do aplicativo, instalador e desinstalador
+- **Formato:** Deve ser um arquivo .ico válido do Windows
+- **Tamanho:** Recomendado 256x256 pixels ou múltiplos tamanhos incluídos
+
+### Por que .ico?
+- **Compatibilidade:** Formato nativo do Windows
+- **NSIS:** Aceita apenas arquivos .ico para ícones
+- **Qualidade:** Suporte a múltiplas resoluções
+- **Padrão:** Formato padrão para aplicativos Windows
 
 ## 🔍 Solução de Problemas
 
