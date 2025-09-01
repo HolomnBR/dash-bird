@@ -55,122 +55,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build API
-        run: pnpm run build:api
-
-      - name: Build Electron
-        run: pnpm run build:electron
-
-      - name: Build Windows artifacts
+      # 1. BUILD
+      - name: Build app
         run: pnpm run build:windows
 
-      - name: Consolidar artefatos usando script
-        run: node scripts/consolidate-build.js
-
-      - name: Verify build integrity
-        run: pnpm run verify:build
-
-      - name: List generated files
+      # 2. PREPARE RELEASE
+      - name: Prepare release
         shell: pwsh
         run: |
-          Write-Host "📁 Verificando arquivos gerados em release..."
+          Write-Host "📦 Preparando release..."
           
-          if (Test-Path "release") {
-            $files = Get-ChildItem "release" -Force
-            Write-Host "📁 Conteúdo da pasta release:"
-            foreach ($file in $files) {
-              if ($file.PSIsContainer) {
-                Write-Host "  📁 $($file.Name)/ (diretório)"
-              } else {
-                Write-Host "  📄 $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
-              }
-            }
-            
-            # Verificar subpastas importantes
-            $subdirs = @("api-dist", "dist", "dist-electron", "win-unpacked")
-            foreach ($subdir in $subdirs) {
-              $subdirPath = "release\$subdir"
-              if (Test-Path $subdirPath) {
-                Write-Host "`n📁 Conteúdo de $($subdir):"
-                $subdirFiles = Get-ChildItem $subdirPath -Force
-                foreach ($file in $subdirFiles) {
-                  if ($file.PSIsContainer) {
-                    Write-Host "  📁 $($file.Name)/ (diretório)"
-                  } else {
-                    Write-Host "  📄 $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
-                  }
-                }
-              }
-            }
-            
-            Write-Host "`n🔍 Arquivos por tipo:"
-            $exeFiles = Get-ChildItem "release\*.exe" -ErrorAction SilentlyContinue
-            $dllFiles = Get-ChildItem "release\*.dll" -ErrorAction SilentlyContinue
-            $apiFiles = Get-ChildItem "release\FirebirdApi.*" -ErrorAction SilentlyContinue
-            
-            Write-Host "Executáveis (.exe): $($exeFiles.Count) arquivos"
-            $exeFiles | ForEach-Object { Write-Host "   - $($_.Name)" }
-            
-            Write-Host "Bibliotecas (.dll): $($dllFiles.Count) arquivos"
-            $dllFiles | ForEach-Object { Write-Host "   - $($_.Name)" }
-            
-            Write-Host "Arquivos da API: $($apiFiles.Count) arquivos"
-            $apiFiles | ForEach-Object { Write-Host "   - $($_.Name)" }
-            
-            # Salvar nomes dos arquivos para uso posterior
-            if ($exeFiles.Count -gt 0) {
-              $exeFile = $exeFiles[0].Name
-              echo "EXE_FILE_NAME=$exeFile" >> $env:GITHUB_ENV
-              Write-Host "📦 Arquivo .exe principal: $exeFile"
-            }
-            
-            # Verificar especificamente o Dash Bird.exe
-            Write-Host "🔍 Procurando por executáveis Dash Bird..."
-            
-            # Procurar por todos os arquivos .exe na pasta release
-            $allExeFiles = Get-ChildItem "release\*.exe" -ErrorAction SilentlyContinue
-            $dashBirdExe = $null
-            
-            foreach ($exeFile in $allExeFiles) {
-              Write-Host "  📄 Encontrado: $($exeFile.Name)"
-              if ($exeFile.Name -like "*Dash Bird*") {
-                $dashBirdExe = $exeFile.FullName
-                Write-Host "✅ Dash Bird.exe encontrado: $($exeFile.Name)"
-                # IMPORTANTE: Como working-directory é 'desktop', o caminho deve ser 'release/Dash Bird.exe'
-                $relativePath = "release\$($exeFile.Name)"
-                echo "UPLOAD_EXE_PATH=$relativePath" >> $env:GITHUB_ENV
-                Write-Host "✅ Variável UPLOAD_EXE_PATH definida: $relativePath"
-                break
-              }
-            }
-            
-            if (-not $dashBirdExe) {
-              Write-Host "⚠️  Dash Bird.exe não encontrado na pasta release"
-              
-              # Verificar se está em win-unpacked
-              $winUnpackedExe = "release\win-unpacked\Dash Bird.exe"
-              if (Test-Path $winUnpackedExe) {
-                $stats = Get-Item $winUnpackedExe
-                Write-Host "✅ Dash Bird.exe encontrado em win-unpacked: $($stats.Length) bytes"
-                # IMPORTANTE: Como working-directory é 'desktop', o caminho deve ser 'release/win-unpacked/Dash Bird.exe'
-                echo "UPLOAD_EXE_PATH=release\win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
-                Write-Host "✅ Variável UPLOAD_EXE_PATH definida: release\win-unpacked\Dash Bird.exe"
-              } else {
-                Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
-                
-                # Listar todos os arquivos .exe para debug
-                Write-Host "🔍 Listando todos os arquivos .exe encontrados:"
-                Get-ChildItem "release" -Recurse -Filter "*.exe" | ForEach-Object {
-                  Write-Host "  📄 $($_.FullName)"
-                }
-              }
-            }
-            
-            # Debug: mostrar o valor final da variável
-            Write-Host "🔍 Valor final de UPLOAD_EXE_PATH: $env:UPLOAD_EXE_PATH"
+          # Definir caminho do executável para upload
+          if (Test-Path "release\Dash Bird.exe") {
+            echo "UPLOAD_EXE_PATH=release\Dash Bird.exe" >> $env:GITHUB_ENV
+            Write-Host "✅ Dash Bird.exe encontrado: release\Dash Bird.exe"
           } else {
-            Write-Host "❌ Pasta release não encontrada!"
-            exit 1
+            echo "UPLOAD_EXE_PATH=release\win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
+            Write-Host "✅ Dash Bird.exe encontrado: release\win-unpacked\Dash Bird.exe"
           }
 
       - name: Create Release
@@ -196,77 +97,7 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Verify files before upload
-        shell: pwsh
-        run: |
-          Write-Host "🔍 Verificando arquivos antes do upload..."
-          Write-Host "📁 Diretório atual: $(Get-Location)"
-          
-          # Debug: mostrar todas as variáveis de ambiente
-          Write-Host "🔍 Variáveis de ambiente disponíveis:"
-          Write-Host "UPLOAD_EXE_PATH: $env:UPLOAD_EXE_PATH"
-          Write-Host "DASH_BIRD_EXE_PATH: $env:DASH_BIRD_EXE_PATH"
-          
-          # Verificar se temos o caminho do Dash Bird.exe
-          if (-not $env:UPLOAD_EXE_PATH) {
-            Write-Host "❌ Caminho do Dash Bird.exe não definido!"
-            Write-Host "🔍 Tentando usar DASH_BIRD_EXE_PATH como fallback..."
-            if ($env:DASH_BIRD_EXE_PATH) {
-              $env:UPLOAD_EXE_PATH = $env:DASH_BIRD_EXE_PATH
-              Write-Host "✅ Usando DASH_BIRD_EXE_PATH como fallback: $env:UPLOAD_EXE_PATH"
-            } else {
-              Write-Host "❌ Nenhuma variável de caminho definida!"
-              exit 1
-            }
-          }
-          
-          $exePath = $env:UPLOAD_EXE_PATH
-          Write-Host "📁 Caminho do executável: $exePath"
-          
-          # IMPORTANTE: Verificar se o arquivo existe
-          if (-not (Test-Path $exePath)) {
-            Write-Host "❌ Arquivo .exe não encontrado: $exePath"
-            Write-Host "🔍 Listando arquivos no diretório atual:"
-            Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
-            
-            # Tentar encontrar o arquivo em outros locais
-            Write-Host "🔍 Tentando encontrar Dash Bird.exe em outros locais..."
-            if (Test-Path "release\Dash Bird.exe") {
-              Write-Host "✅ Dash Bird.exe encontrado em release\Dash Bird.exe"
-              $env:UPLOAD_EXE_PATH = "release\Dash Bird.exe"
-              $exePath = $env:UPLOAD_EXE_PATH
-            } elseif (Test-Path "release\win-unpacked\Dash Bird.exe") {
-              Write-Host "✅ Dash Bird.exe encontrado em release\win-unpacked\Dash Bird.exe"
-              $env:UPLOAD_EXE_PATH = "release\win-unpacked\Dash Bird.exe"
-              $exePath = $env:UPLOAD_EXE_PATH
-            } else {
-              Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
-              exit 1
-            }
-          }
-          
-          Write-Host "✅ Arquivo .exe encontrado: $exePath"
-          
-          # Verificar se o executável tem tamanho adequado (mais de 100MB)
-          $fileSize = (Get-Item $exePath).Length
-          $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
-          Write-Host "📦 Tamanho do executável: $fileSizeMB MB"
-          
-          if ($fileSize -lt 100MB) {
-            Write-Host "⚠️  Executável parece muito pequeno, pode estar corrompido"
-          }
-          
-          # Verificar se os arquivos da API estão presentes
-          $apiExe = "api-dist\FirebirdApi.exe"
-          if (Test-Path $apiExe) {
-            Write-Host "✅ Arquivo da API encontrado: $apiExe"
-          } else {
-            Write-Host "⚠️  Arquivo da API não encontrado: $apiExe"
-          }
-          
-          Write-Host "✅ Verificação concluída com sucesso!"
-          Write-Host "🎯 Caminho final para upload: $env:UPLOAD_EXE_PATH"
-
+      # 3. UPLOAD
       - name: Upload DashBird Executable
         uses: actions/upload-release-asset@v1
         env:
