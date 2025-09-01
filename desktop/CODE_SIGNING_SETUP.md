@@ -105,6 +105,11 @@ pnpm run test:build-config
 pnpm run test:electron-builder
 ```
 
+### Testar Configuração NSIS
+```bash
+pnpm run test:nsis-config
+```
+
 ### Testar Assinatura
 ```bash
 pnpm run test:code-signing

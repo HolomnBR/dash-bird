@@ -23,6 +23,7 @@
     "build:full": "pnpm build:api && pnpm build:electron",
     "build:windows": "pnpm build:full && electron-builder --win --publish never",
     "build:windows:signed": "node scripts/build-with-signing.js",
+    "build:windows:portable": "node scripts/build-portable-only.js",
     "build:windows:legacy": "pnpm build:full && electron-builder --win --publish never --config.win.certificateFile=$CSC_LINK --config.win.certificatePassword=$CSC_KEY_PASSWORD",
     "test:api": "node scripts/test-api.js",
     "test:upload-path": "node scripts/test-upload-path.js",

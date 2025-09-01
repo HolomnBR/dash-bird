@@ -22,9 +22,7 @@ try {
         { name: 'allowToChangeInstallationDirectory', pattern: /allowToChangeInstallationDirectory:/, required: false },
         { name: 'createDesktopShortcut', pattern: /createDesktopShortcut:/, required: false },
         { name: 'createStartMenuShortcut', pattern: /createStartMenuShortcut:/, required: false },
-        { name: 'shortcutName', pattern: /shortcutName:/, required: false },
-        { name: 'installerIcon', pattern: /installerIcon:/, required: false },
-        { name: 'uninstallerIcon', pattern: /uninstallerIcon:/, required: false }
+        { name: 'shortcutName', pattern: /shortcutName:/, required: false }
     ];
     
     let allChecksPass = true;
@@ -46,7 +44,8 @@ try {
     const fileChecks = [
         { name: 'build/installer.nsh', pattern: /build\/installer\.nsh/, shouldExist: false },
         { name: 'build/installer.nsi', pattern: /build\/installer\.nsi/, shouldExist: false },
-        { name: 'LICENSE', pattern: /LICENSE/, shouldExist: true }
+        { name: 'LICENSE', pattern: /LICENSE/, shouldExist: true },
+        { name: 'public/vite.svg', pattern: /public\/vite\.svg/, shouldExist: true }
     ];
     
     for (const check of fileChecks) {
@@ -63,6 +62,23 @@ try {
             } else {
                 console.log(`✅ ${check.name}: Não referenciado (correto)`);
             }
+        }
+    }
+    
+    // Verificar se as configurações de ícones foram removidas
+    console.log('\n🔍 Verificando configurações de ícones...');
+    
+    const iconChecks = [
+        { name: 'installerIcon', pattern: /installerIcon:/, shouldExist: false },
+        { name: 'uninstallerIcon', pattern: /uninstallerIcon:/, shouldExist: false }
+    ];
+    
+    for (const check of iconChecks) {
+        if (check.pattern.test(configContent)) {
+            console.log(`⚠️  ${check.name}: Ainda configurado (pode causar erro no NSIS)`);
+            allChecksPass = false;
+        } else {
+            console.log(`✅ ${check.name}: Não configurado (correto para evitar erros)`);
         }
     }
     
