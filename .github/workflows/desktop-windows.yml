@@ -136,8 +136,8 @@ jobs:
               if ($exeFile.Name -like "*Dash Bird*") {
                 $dashBirdExe = $exeFile.FullName
                 Write-Host "✅ Dash Bird.exe encontrado: $($exeFile.Name)"
-                # Usar caminho relativo para o working directory
-                $relativePath = $exeFile.Name
+                # IMPORTANTE: Como working-directory é 'desktop', o caminho deve ser 'release/Dash Bird.exe'
+                $relativePath = "release\$($exeFile.Name)"
                 echo "UPLOAD_EXE_PATH=$relativePath" >> $env:GITHUB_ENV
                 Write-Host "✅ Variável UPLOAD_EXE_PATH definida: $relativePath"
                 break
@@ -152,9 +152,9 @@ jobs:
               if (Test-Path $winUnpackedExe) {
                 $stats = Get-Item $winUnpackedExe
                 Write-Host "✅ Dash Bird.exe encontrado em win-unpacked: $($stats.Length) bytes"
-                # Usar caminho relativo para o working directory
-                echo "UPLOAD_EXE_PATH=win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
-                Write-Host "✅ Variável UPLOAD_EXE_PATH definida: win-unpacked\Dash Bird.exe"
+                # IMPORTANTE: Como working-directory é 'desktop', o caminho deve ser 'release/win-unpacked/Dash Bird.exe'
+                echo "UPLOAD_EXE_PATH=release\win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
+                Write-Host "✅ Variável UPLOAD_EXE_PATH definida: release\win-unpacked\Dash Bird.exe"
               } else {
                 Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
                 
@@ -223,11 +223,26 @@ jobs:
           $exePath = $env:UPLOAD_EXE_PATH
           Write-Host "📁 Caminho do executável: $exePath"
           
+          # IMPORTANTE: Verificar se o arquivo existe
           if (-not (Test-Path $exePath)) {
             Write-Host "❌ Arquivo .exe não encontrado: $exePath"
             Write-Host "🔍 Listando arquivos no diretório atual:"
             Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
-            exit 1
+            
+            # Tentar encontrar o arquivo em outros locais
+            Write-Host "🔍 Tentando encontrar Dash Bird.exe em outros locais..."
+            if (Test-Path "release\Dash Bird.exe") {
+              Write-Host "✅ Dash Bird.exe encontrado em release\Dash Bird.exe"
+              $env:UPLOAD_EXE_PATH = "release\Dash Bird.exe"
+              $exePath = $env:UPLOAD_EXE_PATH
+            } elseif (Test-Path "release\win-unpacked\Dash Bird.exe") {
+              Write-Host "✅ Dash Bird.exe encontrado em release\win-unpacked\Dash Bird.exe"
+              $env:UPLOAD_EXE_PATH = "release\win-unpacked\Dash Bird.exe"
+              $exePath = $env:UPLOAD_EXE_PATH
+            } else {
+              Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
+              exit 1
+            }
           }
           
           Write-Host "✅ Arquivo .exe encontrado: $exePath"
@@ -250,6 +265,7 @@ jobs:
           }
           
           Write-Host "✅ Verificação concluída com sucesso!"
+          Write-Host "🎯 Caminho final para upload: $env:UPLOAD_EXE_PATH"
 
       - name: Upload DashBird Executable
         uses: actions/upload-release-asset@v1
