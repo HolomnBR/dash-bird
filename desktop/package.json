@@ -1,9 +1,12 @@
 {
   "name": "desktop",
+  "version": "0.1.0",
+  "description": "Dash Bird - Desktop client for Firebird database exploration.",
+  "author": "Holomn",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
   "main": "dist-electron/main.js",
+  "repository": "https://github.com/HolomnBR/dash-bird",
   "trustedDependencies": [
     "electron",
     "esbuild"
