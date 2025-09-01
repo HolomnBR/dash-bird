@@ -33,6 +33,7 @@
     "test:nsis-config": "node scripts/test-nsis-config.js",
     "verify:build": "node scripts/verify-build.js",
     "verify:signature": "powershell -ExecutionPolicy Bypass -File scripts/verify-signature.ps1",
+    "verify:signature:robust": "node scripts/verify-signature-robust.js",
     "convert:cert": "powershell -ExecutionPolicy Bypass -File scripts/convert-certificate.ps1",
     "lint": "eslint .",
     "preview": "vite preview"

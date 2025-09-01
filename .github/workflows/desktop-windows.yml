@@ -104,21 +104,10 @@ jobs:
           Get-ChildItem release
           
           Write-Host "🔐 Verificando assinatura digital..." -ForegroundColor Yellow
-          if (Test-Path "release\*.exe") {
-            Get-ChildItem "release\*.exe" | ForEach-Object {
-              Write-Host "📋 Verificando: $($_.Name)" -ForegroundColor White
-              try {
-                $sig = Get-AuthenticodeSignature $_.FullName
-                if ($sig.Status -eq "Valid") {
-                  Write-Host "✅ $($_.Name) - Assinatura válida" -ForegroundColor Green
-                } else {
-                  Write-Host "⚠️  $($_.Name) - Status: $($sig.Status)" -ForegroundColor Yellow
-                }
-              } catch {
-                Write-Host "❌ Erro ao verificar assinatura: $_" -ForegroundColor Red
-              }
-            }
-          }
+          # Usar script robusto que não falha o workflow
+          node scripts/verify-signature-robust.js
+          
+          Write-Host "✅ Verificação de assinatura concluída" -ForegroundColor Green
 
       # 3. CRIAÇÃO E PUBLICAÇÃO DO RELEASE
       - name: Create and Publish Release
