@@ -1,0 +1,24 @@
+### Teste de debug do logout
+### Verificar se os endpoints estão funcionando
+
+### 1. Testar se o FireBirdAPI está rodando
+GET http://localhost:5000/api/Auth/profile
+Authorization: Bearer SEU_TOKEN_AQUI
+
+### 2. Testar endpoint de nós
+GET http://localhost:5000/api/Auth/nodes
+Authorization: Bearer SEU_TOKEN_AQUI
+
+### 3. Testar endpoint de logout
+POST http://localhost:5000/api/Auth/logout
+Authorization: Bearer SEU_TOKEN_AQUI
+Content-Type: application/json
+
+### 4. Testar endpoint de unbind (se tiver um nó)
+POST http://localhost:5000/api/Auth/unbind-node
+Authorization: Bearer SEU_TOKEN_AQUI
+Content-Type: application/json
+
+{
+  "nodeId": "SEU_NODE_ID_AQUI"
+}

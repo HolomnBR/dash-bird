@@ -19,6 +19,21 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.4" />
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="9.0.4" />
+    
+    <!-- Dependências gRPC -->
+    <PackageReference Include="Grpc.Net.Client" Version="2.62.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.62.0" PrivateAssets="All" />
+    <PackageReference Include="Google.Protobuf" Version="3.25.1" />
+    
+    <!-- Dependências para autenticação e JWT -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.1" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.2.1" />
+  </ItemGroup>
+
+  <!-- Configuração para gerar código gRPC -->
+  <ItemGroup>
+    <Protobuf Include="Protos\dashbird_service.proto" GrpcServices="Client" />
   </ItemGroup>
 
   <!-- Garantir que assemblies do Swagger sejam preservados -->
