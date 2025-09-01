@@ -94,9 +94,12 @@ async function main() {
         console.log('\n🚀 Build final com electron-builder...');
         if (hasSigning) {
             console.log('🔐 Usando configuração de assinatura digital...');
-            runCommand('electron-builder --win --publish never');
+            // Usar argumentos de linha de comando para maior confiabilidade
+            const signingArgs = `--win --publish never --config.win.cscLink="${process.env.CSC_LINK}" --config.win.cscKeyPassword="${process.env.CSC_KEY_PASSWORD}"`;
+            runCommand(`electron-builder ${signingArgs}`);
         } else {
             console.log('⚠️  Build sem assinatura digital...');
+            // Build sem assinatura
             runCommand('electron-builder --win --publish never');
         }
         

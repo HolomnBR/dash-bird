@@ -18,9 +18,14 @@ win:
         - x64
   
   # Configurações de assinatura de código (propriedades corretas para v26.0.12)
-  # Usar variáveis de ambiente diretamente
-  cscLink: $CSC_LINK
-  cscKeyPassword: $CSC_KEY_PASSWORD
+  # Configuração simplificada para melhor compatibilidade
+  # As variáveis serão passadas via linha de comando ou ambiente
+  # cscLink: "${env.CSC_LINK}"
+  # cscKeyPassword: "${env.CSC_KEY_PASSWORD}"
+  
+  # Configurações alternativas (se a sintaxe acima não funcionar)
+  # cscLink: "${CSC_LINK}"
+  # cscKeyPassword: "${CSC_KEY_PASSWORD}"
   
   # Configurações de segurança e compatibilidade
   requestedExecutionLevel: asInvoker

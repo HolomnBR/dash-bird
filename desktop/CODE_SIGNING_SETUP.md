@@ -100,6 +100,11 @@ O workflow `.github/workflows/desktop-windows.yml` já está configurado para:
 pnpm run test:build-config
 ```
 
+### Testar Electron Builder
+```bash
+pnpm run test:electron-builder
+```
+
 ### Testar Assinatura
 ```bash
 pnpm run test:code-signing
@@ -130,6 +135,36 @@ desktop/
 ```
 
 ## 🔍 Solução de Problemas
+
+### Erro: "Env WIN_CSC_LINK is not correct, cannot resolve: $CSC_LINK doesn't exist"
+**Causa:** O electron-builder não está reconhecendo as variáveis de ambiente corretamente.
+
+**Soluções:**
+1. **Use o script de build com assinatura:**
+   ```bash
+   pnpm run build:windows:signed
+   ```
+
+2. **Verifique a configuração:**
+   ```bash
+   pnpm run test:electron-builder
+   ```
+
+3. **Configure variáveis de ambiente:**
+   ```bash
+   # Windows PowerShell
+   $env:CSC_LINK = "caminho\para\certificado.pfx"
+   $env:CSC_KEY_PASSWORD = "sua_senha"
+   
+   # Linux/macOS
+   export CSC_LINK="caminho/para/certificado.pfx"
+   export CSC_KEY_PASSWORD="sua_senha"
+   ```
+
+4. **Use argumentos de linha de comando:**
+   ```bash
+   electron-builder --win --publish never --config.win.cscLink="caminho/certificado.pfx" --config.win.cscKeyPassword="senha"
+   ```
 
 ### Erro: "CSC_LINK is not correct"
 - Verifique se a variável `CSC_LINK` está configurada

@@ -80,7 +80,7 @@ jobs:
             Write-Host "🔐 Configurando certificado de assinatura..." -ForegroundColor Yellow
             & "..\scripts\setup-code-signing.ps1" -CertificateBase64 $env:CSC_LINK -CertificatePassword $env:CSC_KEY_PASSWORD -WorkingDirectory "."
             
-            # Executar o build com assinatura
+            # Executar o build com assinatura usando o novo script
             Write-Host "🚀 Iniciando build com assinatura digital..." -ForegroundColor Green
             pnpm run build:windows:signed
           } else {

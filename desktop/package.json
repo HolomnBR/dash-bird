@@ -28,6 +28,7 @@
     "test:upload-path": "node scripts/test-upload-path.js",
     "test:code-signing": "powershell -ExecutionPolicy Bypass -File scripts/test-code-signing.ps1",
     "test:build-config": "node scripts/test-build-config.js",
+    "test:electron-builder": "node scripts/test-electron-builder.js",
     "verify:build": "node scripts/verify-build.js",
     "verify:signature": "powershell -ExecutionPolicy Bypass -File scripts/verify-signature.ps1",
     "convert:cert": "powershell -ExecutionPolicy Bypass -File scripts/convert-certificate.ps1",
