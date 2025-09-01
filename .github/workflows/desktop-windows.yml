@@ -225,31 +225,13 @@ jobs:
             Write-Host "⚠️  Arquivo da API não encontrado: $apiExe"
           }
 
-      - name: Upload NSIS Installer
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: release/*Setup.exe
-          asset_name: DashBird-Windows-Installer-v${{ github.run_number }}.exe
-          asset_content_type: application/octet-stream
-
-      - name: Upload Portable Version
+      - name: Upload DashBird Executable
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: release/Dash Bird.exe
-          asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
+          asset_name: DashBird-Windows-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
-
-      - name: Upload artifacts (Backup)
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-windows
-          path: |
-            release/*.exe
-            release/FirebirdApi.*
 
