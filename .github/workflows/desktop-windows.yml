@@ -57,6 +57,12 @@ jobs:
 
       # 1. BUILD
       - name: Build application artifacts
+        env:
+          # Estes secrets precisam ser criados nas configurações do seu repositório no GitHub
+          # CSC_LINK: O certificado .pfx codificado em Base64 com o prefixo data:...
+          # CSC_KEY_PASSWORD: A senha do certificado
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: pnpm run build:windows
       
       # 2. VERIFY
