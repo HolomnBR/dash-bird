@@ -73,20 +73,32 @@ jobs:
           Write-Host "📁 Verificando arquivos gerados..."
           Write-Host "📁 Conteúdo da pasta release:"
           
-          if (Test-Path "desktop\release") {
-            $files = Get-ChildItem "desktop\release" -Force
+          if (Test-Path "release") {
+            $files = Get-ChildItem "release" -Force
             foreach ($file in $files) {
               Write-Host "  - $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
             }
             
+            # Verificar pasta win-unpacked
+            if (Test-Path "release\win-unpacked") {
+              Write-Host "`n📁 Conteúdo da pasta win-unpacked:"
+              $winUnpackedFiles = Get-ChildItem "release\win-unpacked" -Force
+              foreach ($file in $winUnpackedFiles) {
+                Write-Host "  - $($file.Name) ($($file.Length) bytes) - $($file.Extension)"
+              }
+            }
+            
             Write-Host "`n🔍 Arquivos por tipo:"
-            $exeFiles = Get-ChildItem "desktop\release\*.exe" -ErrorAction SilentlyContinue
-            $zipFiles = Get-ChildItem "desktop\release\*.zip" -ErrorAction SilentlyContinue
-            $7zFiles = Get-ChildItem "desktop\release\*.7z" -ErrorAction SilentlyContinue
+            $exeFiles = Get-ChildItem "release\win-unpacked\*.exe" -ErrorAction SilentlyContinue
+            $dllFiles = Get-ChildItem "release\win-unpacked\*.dll" -ErrorAction SilentlyContinue
             
             Write-Host "Executáveis (.exe): $($exeFiles.Count) arquivos"
-            Write-Host "ZIP (.zip): $($zipFiles.Count) arquivos"
-            Write-Host "7z (.7z): $($7zFiles.Count) arquivos"
+            Write-Host "Bibliotecas (.dll): $($dllFiles.Count) arquivos"
+            
+            # Nota sobre arquivos empacotados
+            Write-Host "`nℹ️  Nota: O electron-builder está gerando apenas o executável desempacotado"
+            Write-Host "   devido ao code signing. Os arquivos .exe, .zip e .7z empacotados"
+            Write-Host "   não estão sendo gerados neste momento."
             
             # Salvar nomes dos arquivos para uso posterior
             if ($exeFiles.Count -gt 0) {
@@ -95,7 +107,7 @@ jobs:
               Write-Host "📦 Arquivo .exe principal: $exeFile"
             }
           } else {
-            Write-Host "❌ Pasta desktop\release não encontrada!"
+            Write-Host "❌ Pasta release não encontrada!"
             exit 1
           }
 
@@ -115,35 +127,35 @@ jobs:
             **Branch:** ${{ github.ref_name }}
             
             📦 **Artefatos incluídos:**
-            - Instalador NSIS (.exe)
+            - Executável principal (.exe)
             - Versão portátil (.exe)
-            - Arquivos compactados (.zip, .7z)
             
             ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
           draft: false
           prerelease: false
-          target_commitish: ${{ github.sha }}
 
       - name: Verify files before upload
         shell: pwsh
         run: |
           Write-Host "🔍 Verificando arquivos antes do upload..."
           
-          $exePath = "desktop\release\$env:EXE_FILE_NAME"
-          $zipPath = "desktop\release\*.zip"
-          $7zPath = "desktop\release\*.7z"
+          $exePath = "release\win-unpacked\$env:EXE_FILE_NAME"
           
           if (-not (Test-Path $exePath)) {
             Write-Host "❌ Arquivo .exe não encontrado: $exePath"
             exit 1
           }
           
-          $zipFiles = Get-ChildItem $zipPath -ErrorAction SilentlyContinue
-          $7zFiles = Get-ChildItem $7zPath -ErrorAction SilentlyContinue
-          
           Write-Host "✅ Arquivo .exe encontrado: $exePath"
-          Write-Host "📦 Arquivos ZIP: $($zipFiles.Count)"
-          Write-Host "📦 Arquivos 7z: $($7zFiles.Count)"
+          
+          # Verificar se o executável tem tamanho adequado (mais de 100MB)
+          $fileSize = (Get-Item $exePath).Length
+          $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
+          Write-Host "📦 Tamanho do executável: $fileSizeMB MB"
+          
+          if ($fileSize -lt 100MB) {
+            Write-Host "⚠️  Executável parece muito pequeno, pode estar corrompido"
+          }
 
       - name: Upload NSIS Installer
         uses: actions/upload-release-asset@v1
@@ -151,7 +163,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
+          asset_path: release/win-unpacked/${{ env.EXE_FILE_NAME }}
           asset_name: DashBird-Windows-Installer-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
@@ -161,39 +173,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/${{ env.EXE_FILE_NAME }}
+          asset_path: release/win-unpacked/${{ env.EXE_FILE_NAME }}
           asset_name: DashBird-Windows-Portable-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
-      - name: Upload ZIP Archive
-        if: hashFiles('desktop/release/*.zip') != ''
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/*.zip
-          asset_name: DashBird-Windows-v${{ github.run_number }}.zip
-          asset_content_type: application/zip
 
-      - name: Upload 7z Archive
-        if: hashFiles('desktop/release/*.7z') != ''
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: desktop/release/*.7z
-          asset_name: DashBird-Windows-v${{ github.run_number }}.7z
-          asset_content_type: application/x-7z-compressed
 
       - name: Upload artifacts (Backup)
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
           path: |
-            desktop/release/*.exe
-            desktop/release/*.zip
-            desktop/release/*.7z
-            desktop/release/*.nsis.exe
+            release/win-unpacked/*.exe
 
