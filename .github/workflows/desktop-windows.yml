@@ -136,7 +136,9 @@ jobs:
               if ($exeFile.Name -like "*Dash Bird*") {
                 $dashBirdExe = $exeFile.FullName
                 Write-Host "✅ Dash Bird.exe encontrado: $($exeFile.Name)"
-                echo "DASH_BIRD_EXE_PATH=$($exeFile.FullName)" >> $env:GITHUB_ENV
+                # Usar caminho relativo para o working directory
+                $relativePath = $exeFile.Name
+                echo "DASH_BIRD_EXE_PATH=$relativePath" >> $env:GITHUB_ENV
                 break
               }
             }
@@ -149,7 +151,8 @@ jobs:
               if (Test-Path $winUnpackedExe) {
                 $stats = Get-Item $winUnpackedExe
                 Write-Host "✅ Dash Bird.exe encontrado em win-unpacked: $($stats.Length) bytes"
-                echo "DASH_BIRD_EXE_PATH=$winUnpackedExe" >> $env:GITHUB_ENV
+                # Usar caminho relativo para o working directory
+                echo "DASH_BIRD_EXE_PATH=win-unpacked\Dash Bird.exe" >> $env:GITHUB_ENV
               } else {
                 Write-Host "❌ Dash Bird.exe não encontrado em lugar nenhum!"
                 
@@ -192,6 +195,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "🔍 Verificando arquivos antes do upload..."
+          Write-Host "📁 Diretório atual: $(Get-Location)"
           
           # Verificar se temos o caminho do Dash Bird.exe
           if (-not $env:DASH_BIRD_EXE_PATH) {
@@ -218,11 +222,28 @@ jobs:
           }
           
           # Verificar se os arquivos da API estão presentes
-          $apiExe = "release\FirebirdApi.exe"
+          $apiExe = "api-dist\FirebirdApi.exe"
           if (Test-Path $apiExe) {
             Write-Host "✅ Arquivo da API encontrado: $apiExe"
           } else {
             Write-Host "⚠️  Arquivo da API não encontrado: $apiExe"
+          }
+          
+          # Verificar se o Dash Bird.exe está na raiz do release
+          $dashBirdExe = "Dash Bird.exe"
+          if (Test-Path $dashBirdExe) {
+            Write-Host "✅ Dash Bird.exe encontrado na raiz: $dashBirdExe"
+            $stats = Get-Item $dashBirdExe
+            Write-Host "📦 Tamanho: $([math]::Round($stats.Length / 1MB, 2)) MB"
+            
+            # Definir o caminho correto para o upload
+            echo "UPLOAD_EXE_PATH=$dashBirdExe" >> $env:GITHUB_ENV
+            Write-Host "✅ Caminho para upload definido: $dashBirdExe"
+          } else {
+            Write-Host "❌ Dash Bird.exe não encontrado na raiz: $dashBirdExe"
+            Write-Host "🔍 Listando arquivos no diretório atual:"
+            Get-ChildItem | ForEach-Object { Write-Host "  - $($_.Name)" }
+            exit 1
           }
 
       - name: Upload DashBird Executable
@@ -231,7 +252,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: release/Dash Bird.exe
+          asset_path: ${{ env.UPLOAD_EXE_PATH }}
           asset_name: DashBird-Windows-v${{ github.run_number }}.exe
           asset_content_type: application/octet-stream
 
