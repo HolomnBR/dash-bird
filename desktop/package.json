@@ -22,9 +22,12 @@
     "build:api": "node scripts/build-api.js",
     "build:full": "pnpm build:api && pnpm build:electron",
     "build:windows": "pnpm build:full && electron-builder --win --publish never",
+    "build:windows:signed": "pnpm build:full && electron-builder --win --publish never --config.win.certificateFile=$CSC_LINK --config.win.certificatePassword=$CSC_KEY_PASSWORD",
     "test:api": "node scripts/test-api.js",
     "test:upload-path": "node scripts/test-upload-path.js",
     "verify:build": "node scripts/verify-build.js",
+    "verify:signature": "powershell -ExecutionPolicy Bypass -File scripts/verify-signature.ps1",
+    "convert:cert": "powershell -ExecutionPolicy Bypass -File scripts/convert-certificate.ps1",
     "lint": "eslint .",
     "preview": "vite preview"
   },

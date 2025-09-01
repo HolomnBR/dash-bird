@@ -55,30 +55,66 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # 1. BUILD
-      - name: Build application artifacts
+      # 1. BUILD COM ASSINATURA DIGITAL
+      - name: Build application artifacts with code signing
         env:
-          # Estes secrets precisam ser criados nas configurações do seu repositório no GitHub
-          # CSC_LINK: O certificado .pfx codificado em Base64 com o prefixo data:...
-          # CSC_KEY_PASSWORD: A senha do certificado
+          # Secrets necessários para assinatura de código
+          # CSC_LINK: Certificado .pfx codificado em Base64 com prefixo data:application/x-pkcs12;base64,...
+          # CSC_KEY_PASSWORD: Senha do certificado
+          # CSC_KEY_SHA1: Hash SHA1 do certificado (opcional, mas recomendado)
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: pnpm run build:windows
-      
-      # 2. VERIFY
-      - name: Verify build artifacts
+          CSC_KEY_SHA1: ${{ secrets.CSC_KEY_SHA1 }}
+          
+          # Variáveis de ambiente para build
+          NODE_ENV: production
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
         run: |
+          echo "🔐 Iniciando build com assinatura digital..."
+          echo "📋 Verificando variáveis de ambiente..."
+          if [ -n "$CSC_LINK" ]; then
+            echo "✅ Certificado configurado"
+          else
+            echo "⚠️  Certificado não configurado - build sem assinatura"
+          fi
+          
+          pnpm run build:windows
+          
+          echo "✅ Build concluído com sucesso!"
+      
+      # 2. VERIFICAÇÃO DOS ARQUIVOS GERADOS
+      - name: Verify build artifacts and code signing
+        run: |
+          echo "🔍 Verificando arquivos gerados..."
           node scripts/verify-build.js
+          
           echo "📁 Arquivos gerados em desktop/release:"
           dir release
+          
+          echo "🔐 Verificando assinatura digital..."
+          if (Test-Path "release\*.exe") {
+            Get-ChildItem "release\*.exe" | ForEach-Object {
+              echo "📋 Verificando: $($_.Name)"
+              try {
+                $sig = Get-AuthenticodeSignature $_.FullName
+                if ($sig.Status -eq "Valid") {
+                  echo "✅ $($_.Name) - Assinatura válida"
+                } else {
+                  echo "⚠️  $($_.Name) - Status: $($sig.Status)"
+                }
+              } catch {
+                echo "❌ Erro ao verificar assinatura: $_"
+              }
+            }
+          }
 
-      # 3. CREATE AND PUBLISH RELEASE
+      # 3. CRIAÇÃO E PUBLICAÇÃO DO RELEASE
       - name: Create and Publish Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          # Create a temporary file with the release notes using PowerShell's here-string syntax
+          # Criar arquivo de notas do release
           @"
           🚀 Build automático do DashBird para Windows
 
@@ -87,13 +123,23 @@ jobs:
           **Branch:** ${{ github.ref_name }}
 
           📦 **Artefatos incluídos:**
-          - Instalador e/ou versão portátil para Windows.
+          - Instalador NSIS para Windows x64
+          - Versão portátil para Windows x64
+          - Aplicativo assinado digitalmente (quando certificado disponível)
+
+          🔐 **Segurança:**
+          - Aplicativo assinado com certificado digital (quando disponível)
+          - Compatível com Windows Defender SmartScreen
+          - Execução segura e confiável
 
           ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
+          🏗️ **Workflow:** ${{ github.workflow }}
           "@ | Set-Content -Path release-notes.md -Encoding utf8
           
-          # Create a new release and upload all files from the release folder in one go.
+          # Criar release e fazer upload de todos os arquivos
           gh release create v${{ github.run_number }} release/*.* `
             --title "DashBird Windows Build v${{ github.run_number }}" `
             --notes-file release-notes.md `
             --latest
+          
+          echo "✅ Release criado com sucesso!"

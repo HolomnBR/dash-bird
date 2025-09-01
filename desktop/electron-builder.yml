@@ -6,3 +6,61 @@ files:
   - "dist/**/*"
   - "dist-electron/**/*"
   - "api-dist/**/*"
+
+# Configurações específicas para Windows
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  
+  # Configurações de assinatura de código
+  certificateFile: $CSC_LINK
+  certificatePassword: $CSC_KEY_PASSWORD
+  certificateSha1: $CSC_KEY_SHA1
+  
+  # Configurações de segurança e compatibilidade
+  requestedExecutionLevel: asInvoker
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+  
+  # Configurações do instalador NSIS
+  nsis:
+    oneClick: false
+    allowToChangeInstallationDirectory: true
+    createDesktopShortcut: true
+    createStartMenuShortcut: true
+    shortcutName: "Dash Bird"
+    installerIcon: "public/vite.svg"
+    uninstallerIcon: "public/vite.svg"
+    installerHeader: "public/vite.svg"
+    installerSidebar: "public/vite.svg"
+    uninstallerSidebar: "public/vite.svg"
+    license: "LICENSE"
+    include: "build/installer.nsh"
+    script: "build/installer.nsi"
+
+# Configurações gerais de segurança
+publish:
+  provider: github
+  releaseType: release
+  private: false
+
+# Configurações de compressão
+compression: maximum
+
+# Configurações de metadados
+extraMetadata:
+  homepage: "https://github.com/HolomnBR/dash-bird"
+  author:
+    name: "Holomn"
+    email: "contato@holomn.com.br"
+  description: "Dash Bird - Desktop client for Firebird database exploration"
+  keywords:
+    - "firebird"
+    - "database"
+    - "desktop"
+    - "electron"
+    - "react"
