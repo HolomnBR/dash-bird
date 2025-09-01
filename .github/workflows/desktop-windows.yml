@@ -70,9 +70,10 @@ jobs:
       - name: Create and Publish Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         run: |
-          # Create a temporary file with the release notes
-          cat <<'EOF' > release-notes.md
+          # Create a temporary file with the release notes using PowerShell's here-string syntax
+          @"
           🚀 Build automático do DashBird para Windows
 
           **Build Number:** ${{ github.run_number }}
@@ -81,12 +82,12 @@ jobs:
 
           📦 **Artefatos incluídos:**
           - Instalador e/ou versão portátil para Windows.
-          
-          ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
-          EOF
 
+          ⚡ **Executado em:** ${{ github.event.head_commit.timestamp }}
+          "@ | Set-Content -Path release-notes.md -Encoding utf8
+          
           # Create a new release and upload all files from the release folder in one go.
-          gh release create v${{ github.run_number }} release/*.* \
-            --title "DashBird Windows Build v${{ github.run_number }}" \
-            --notes-file release-notes.md \
+          gh release create v${{ github.run_number }} release/*.* `
+            --title "DashBird Windows Build v${{ github.run_number }}" `
+            --notes-file release-notes.md `
             --latest
