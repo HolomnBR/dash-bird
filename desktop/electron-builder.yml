@@ -17,30 +17,29 @@ win:
       arch:
         - x64
   
-  # Configurações de assinatura de código
-  certificateFile: $CSC_LINK
-  certificatePassword: $CSC_KEY_PASSWORD
-  certificateSha1: $CSC_KEY_SHA1
+  # Configurações de assinatura de código (propriedades corretas para v26.0.12)
+  cscLink: $CSC_LINK
+  cscKeyPassword: $CSC_KEY_PASSWORD
   
   # Configurações de segurança e compatibilidade
   requestedExecutionLevel: asInvoker
   artifactName: "${productName}-${version}-${arch}.${ext}"
-  
-  # Configurações do instalador NSIS
-  nsis:
-    oneClick: false
-    allowToChangeInstallationDirectory: true
-    createDesktopShortcut: true
-    createStartMenuShortcut: true
-    shortcutName: "Dash Bird"
-    installerIcon: "public/vite.svg"
-    uninstallerIcon: "public/vite.svg"
-    installerHeader: "public/vite.svg"
-    installerSidebar: "public/vite.svg"
-    uninstallerSidebar: "public/vite.svg"
-    license: "LICENSE"
-    include: "build/installer.nsh"
-    script: "build/installer.nsi"
+
+# Configurações do instalador NSIS (movido para o nível raiz)
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Dash Bird"
+  installerIcon: "public/vite.svg"
+  uninstallerIcon: "public/vite.svg"
+  installerHeader: "public/vite.svg"
+  installerSidebar: "public/vite.svg"
+  uninstallerSidebar: "public/vite.svg"
+  license: "LICENSE"
+  include: "build/installer.nsh"
+  script: "build/installer.nsi"
 
 # Configurações gerais de segurança
 publish:
