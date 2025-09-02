@@ -69,6 +69,8 @@ export function NodeManager() {
     }
   }, [nodeConfig, isAuthenticated, token])
 
+
+
   const checkApiStatus = async () => {
     try {
       const windowWithApi = window as unknown as WindowWithApi
@@ -120,28 +122,36 @@ export function NodeManager() {
         }
       }
 
-      // Fazer requisição para o servidor (sempre para verificações automáticas)
+      // PASSO 1: Enviar para API Local (FirebirdAPI)
       console.log('🔍 Verificando conexão no servidor...', forceServerCheck ? '(verificação forçada)' : '(nó não encontrado no localStorage)')
+      
+      // PASSO 2: API Local recebe o comando e envia para o Cloud (Server)
+      // PASSO 3: Cloud lista os nodes por user logado e retorna para API Local
       const result = await window.auth.checkNodeConnection({
         token,
         machineId: nodeConfig.machineId
       })
       
       if (result.success) {
-        console.log('📡 Resposta do servidor:', { 
+        console.log('📡 Resposta completa do servidor:', result)
+        console.log('📡 Resposta do servidor (resumo):', { 
           isConnected: result.isConnected, 
           wasUnbound: result.wasUnbound, 
-          hasNode: !!result.node 
+          hasNode: !!result.node,
+          nodeId: (result.node as { id?: string })?.id || 'N/A'
         })
         
         const wasConnected = isNodeConnected
         const isNowConnected = result.isConnected || false
         
+        // PASSO 4: API Local check se aquele nó está na lista
         setIsNodeConnected(isNowConnected)
         setConnectedNodeId((result.node as { id?: string })?.id || null)
         
-        // Se conectado, salvar no localStorage
+        // PASSO 5: Caso estiver OK não faça nada (já atualizado acima)
+        // PASSO 6: Caso não estiver, remova do localStorage para ficar sincronizado com o server
         if (isNowConnected && result.node) {
+          // Nó está conectado - salvar/atualizar no localStorage
           const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
           const nodeInfo = result.node as NodeInfo
           const existingIndex = connectedNodes.findIndex((node: ConnectedNode) => node.machineId === nodeConfig.machineId)
@@ -154,6 +164,28 @@ export function NodeManager() {
           
           localStorage.setItem('connected_nodes', JSON.stringify(connectedNodes))
           console.log('💾 Nó salvo no localStorage:', { machineId: nodeConfig.machineId, nodeId: nodeInfo.id })
+        } else if (!isNowConnected && !result.node) {
+          // Nó não está na lista do servidor - remover do localStorage para sincronizar
+          // Mas apenas se não houver erro de conexão com o cloud
+          const hasCloudError = result.error && (
+            result.error.includes('cloud') || 
+            result.error.includes('Servidor cloud') ||
+            result.error.includes('cloud não disponível')
+          )
+          
+          if (!hasCloudError) {
+            console.log('🚫 Nó não está na lista do servidor, removendo do localStorage para sincronizar...')
+            const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
+            const filteredNodes = connectedNodes.filter((node: ConnectedNode) => node.machineId !== nodeConfig.machineId)
+            localStorage.setItem('connected_nodes', JSON.stringify(filteredNodes))
+            console.log('🧹 Nó removido do localStorage para sincronizar com servidor:', { machineId: nodeConfig.machineId })
+          } else {
+            console.log('⚠️ Erro de conexão com cloud, mantendo estado atual no localStorage. Erro:', result.error)
+            // Se há erro de cloud, manter o estado atual e mostrar aviso
+            if (forceServerCheck) {
+              setError('Servidor cloud não disponível. Estado mantido localmente.')
+            }
+          }
         }
         
         // Se o nó foi desvinculado remotamente, limpar o localStorage
@@ -185,6 +217,19 @@ export function NodeManager() {
       }
     }
   }, [nodeConfig, token, isNodeConnected])
+
+  // Verificação automática de conexão após carregar dados do nó
+  useEffect(() => {
+    if (nodeConfig && isAuthenticated && token && !loading) {
+      console.log('🔄 Verificação automática de conexão do nó ao iniciar o app...')
+      // Executar verificação após um pequeno delay para garantir que tudo foi carregado
+      const timer = setTimeout(() => {
+        checkNodeConnection(true) // Forçar verificação no servidor
+      }, 1000) // 1 segundo de delay
+      
+      return () => clearTimeout(timer)
+    }
+  }, [nodeConfig, isAuthenticated, token, loading, checkNodeConnection])
 
   // Verificação inicial quando o componente é montado - REMOVIDO para evitar desvinculação automática
   // useEffect(() => {
@@ -248,7 +293,8 @@ export function NodeManager() {
       setActionLoading(true)
       setError(null)
       
-      console.log('📡 Chamando bindCurrentNode com:', { token, machineId: nodeConfig.machineId })
+      // PASSO 7: Se clicar em Conectar nó na conta -> Bind
+      console.log('📡 PASSO 7: Conectando nó na conta (Bind)...', { token, machineId: nodeConfig.machineId })
       const result = await bindCurrentNode({
         token,
         machineId: nodeConfig.machineId
@@ -296,6 +342,8 @@ export function NodeManager() {
       setActionLoading(true)
       setError(null)
       
+      // PASSO 8: Se clicar em desconectar conta -> unbind
+      console.log('📡 PASSO 8: Desconectando nó da conta (Unbind)...', { token, nodeId: connectedNodeId })
       const result = await unbindNode({
         token,
         nodeId: connectedNodeId

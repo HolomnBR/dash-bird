@@ -168,6 +168,20 @@ Importante: credenciais e caminhos de banco são armazenados em JSON. Para produ
 
 ---
 
+## 🧹 Limpeza de Branch
+
+Para garantir builds limpos ao mudar de branch, use o script de limpeza completa:
+
+```bash
+# Limpeza com confirmação
+pnpm run clean-branch
+
+# Limpeza forçada (sem confirmação)
+pnpm run clean-branch:force
+```
+
+📖 **Guia Completo**: Consulte [CLEAN_BRANCH_GUIDE.md](CLEAN_BRANCH_GUIDE.md) para detalhes sobre o processo de limpeza.
+
 ## Troubleshooting
 
 - Não conecta no Firebird:
@@ -179,6 +193,9 @@ Importante: credenciais e caminhos de banco são armazenados em JSON. Para produ
   - Cheque URL `http://localhost:5175/swagger`
 - Desktop não lista bases:
   - Verifique se a API está rodando na mesma porta configurada em `desktop/src/api/http.ts`
+- Problemas de build/cache:
+  - Execute `pnpm run clean-branch` para limpeza completa
+  - Reinstale dependências com `pnpm install`
 
 ---
 

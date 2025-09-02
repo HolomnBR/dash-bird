@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean-branch": "node -e \"process.platform === 'win32' ? require('child_process').exec('powershell -ExecutionPolicy Bypass -File scripts/clean-branch.ps1') : require('child_process').exec('bash scripts/clean-branch.sh')\"",
+    "clean-branch:force": "node -e \"process.platform === 'win32' ? require('child_process').exec('powershell -ExecutionPolicy Bypass -File scripts/clean-branch.ps1 -Force') : require('child_process').exec('bash scripts/clean-branch.sh --force')\""
   },
   "keywords": [],
   "author": "",

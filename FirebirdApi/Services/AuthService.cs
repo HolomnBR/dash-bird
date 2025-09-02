@@ -533,7 +533,7 @@ namespace FirebirdApi.Services
         {
             try
             {
-                _logger.LogInformation("Verificando conexão do nó: {MachineId}", machineId);
+                _logger.LogInformation("Verificando conexão do nó: {MachineId} no servidor cloud: {CloudUrl}", machineId, _cloudServerUrl);
 
                 var request = new HttpRequestMessage(HttpMethod.Get, $"{_cloudServerUrl}/api/User/check-node-connection/{machineId}");
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
@@ -552,29 +552,56 @@ namespace FirebirdApi.Services
                         isConnected = false,
                         wasUnbound = false,
                         node = (object?)null,
-                        error = $"Servidor cloud retornou: {response.StatusCode}"
+                        error = $"Servidor cloud retornou: {response.StatusCode} - {errorContent}"
                     };
                 }
 
                 var result = await response.Content.ReadFromJsonAsync<object>();
+                _logger.LogInformation("Resposta do servidor cloud para nó {MachineId}: {Result}", machineId, result);
+                
                 return result ?? new
                 {
                     success = true,
                     isConnected = false,
                     wasUnbound = false,
-                    node = (object?)null
+                    node = (object?)null,
+                    error = "Resposta vazia do servidor cloud"
                 };
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogWarning("Erro ao verificar conexão do nó: {MachineId} - {Error}", machineId, ex.Message);
+                _logger.LogWarning("Erro de conexão HTTP ao verificar nó {MachineId}: {Error}", machineId, ex.Message);
                 return new
                 {
                     success = true,
                     isConnected = false,
                     wasUnbound = false,
                     node = (object?)null,
-                    error = "Erro de conexão com servidor cloud"
+                    error = $"Servidor cloud não disponível: {ex.Message}"
+                };
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogWarning("Timeout ao verificar conexão do nó {MachineId}: {Error}", machineId, ex.Message);
+                return new
+                {
+                    success = true,
+                    isConnected = false,
+                    wasUnbound = false,
+                    node = (object?)null,
+                    error = "Timeout ao conectar com servidor cloud"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Erro inesperado ao verificar conexão do nó {MachineId}: {Error}", machineId, ex.Message);
+                return new
+                {
+                    success = true,
+                    isConnected = false,
+                    wasUnbound = false,
+                    node = (object?)null,
+                    error = $"Erro de conexão com servidor cloud: {ex.Message}"
                 };
             }
         }

@@ -393,36 +393,41 @@ namespace FirebirdApi.Controllers
                     return Unauthorized(new { message = "Token inválido" });
                 }
 
-                // Obter lista de tokens do usuário
-                var userTokens = await _authService.GetUserTokensAsync(userId);
-
-                // Verificar conexão do nó (tentar com servidor cloud, mas não falhar se não disponível)
-                object connectionResult;
-                try
+                // PASSO 3: Listar os nós do usuário (método já existente)
+                var userNodes = await _authService.GetUserNodesAsync(userId);
+                
+                // PASSO 4: Verificar se o nó atual está na lista
+                var isConnected = false;
+                var node = (object?)null;
+                
+                foreach (var userNode in userNodes)
                 {
-                    connectionResult = await _authService.CheckNodeConnectionAsync(token, machineId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Servidor cloud não disponível, usando verificação local: {Error}", ex.Message);
-                    connectionResult = new
+                    // Verificar se o nó tem o machineId correspondente
+                    if (userNode is System.Text.Json.JsonElement jsonElement)
                     {
-                        success = true,
-                        isConnected = false,
-                        wasUnbound = false,
-                        node = (object?)null,
-                        error = "Servidor cloud não disponível"
-                    };
+                        if (jsonElement.TryGetProperty("machineId", out var machineIdElement))
+                        {
+                            var nodeMachineId = machineIdElement.GetString();
+                            if (nodeMachineId == machineId)
+                            {
+                                isConnected = true;
+                                node = userNode;
+                                break;
+                            }
+                        }
+                    }
                 }
+                
+                _logger.LogInformation("Verificação de conexão: machineId={MachineId}, isConnected={IsConnected}, totalNodes={TotalNodes}", 
+                    machineId, isConnected, userNodes.Count);
 
                 var result = new
                 {
                     success = true,
-                    isConnected = false,
-                    wasUnbound = false,
-                    node = (object?)null,
-                    userTokens = userTokens,
-                    connectionResult = connectionResult
+                    isConnected = isConnected,
+                    wasUnbound = false, // Não aplicável neste contexto
+                    node = node,
+                    userNodes = userNodes
                 };
                 
                 return Ok(result);
