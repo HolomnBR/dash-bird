@@ -37,14 +37,18 @@ export interface DesktopNode {
 }
 
 export class SyncService {
-  private readonly serverBaseUrl: string
-  private readonly machineId: string
-  private syncInterval?: NodeJS.Timeout
+  // private readonly serverBaseUrl: string
+  private machineId: string = ''
+  private syncInterval?: ReturnType<typeof setInterval>
   private isInitialSyncCompleted = false
 
-  constructor(serverBaseUrl: string = 'https://localhost:7001') {
-    this.serverBaseUrl = serverBaseUrl
-    this.machineId = machineId()
+  constructor(_serverBaseUrl: string = 'https://localhost:7001') {
+    // this.serverBaseUrl = serverBaseUrl
+    this.initializeMachineId()
+  }
+
+  private async initializeMachineId() {
+    this.machineId = await machineId()
   }
 
   /**
@@ -56,13 +60,13 @@ export class SyncService {
         'POST',
         '/api/DesktopNode/register',
         {
-          name: process.env.COMPUTERNAME || 'Unknown',
+          name: 'Unknown',
           machineId: this.machineId,
           ipAddress: await this.getLocalIpAddress(),
           port: 8000,
           databasePath,
-          version: process.env.npm_package_version || '1.0.0',
-          operatingSystem: process.platform
+          version: '1.0.0',
+          operatingSystem: 'win32'
         }
       )
 

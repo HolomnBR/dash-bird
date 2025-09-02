@@ -2,7 +2,7 @@
 ### Este arquivo testa o fluxo completo no FireBirdAPI (API local)
 
 ### 1. Primeiro, fazer login para obter um token
-POST http://localhost:5000/api/Auth/login
+POST http://localhost:8000/api/Auth/login
 Content-Type: application/json
 
 {
@@ -11,7 +11,7 @@ Content-Type: application/json
 }
 
 ### 2. Registrar um nó anônimo
-POST http://localhost:5000/api/Auth/anonymous/register
+POST http://localhost:8000/api/Auth/anonymous/register
 Content-Type: application/json
 
 {
@@ -25,7 +25,7 @@ Content-Type: application/json
 }
 
 ### 3. Vincular o nó anônimo ao usuário (usar o token do login e anonymousToken do registro)
-POST http://localhost:5000/api/Auth/bind-node
+POST http://localhost:8000/api/Auth/bind-node
 Content-Type: application/json
 Authorization: Bearer {{token}}
 
@@ -34,11 +34,11 @@ Authorization: Bearer {{token}}
 }
 
 ### 4. Verificar nós do usuário (deve mostrar o nó vinculado)
-GET http://localhost:5000/api/Auth/nodes
+GET http://localhost:8000/api/Auth/nodes
 Authorization: Bearer {{token}}
 
 ### 5. Desvincular um nó específico
-POST http://localhost:5000/api/Auth/unbind-node
+POST http://localhost:8000/api/Auth/unbind-node
 Content-Type: application/json
 Authorization: Bearer {{token}}
 
@@ -47,9 +47,9 @@ Authorization: Bearer {{token}}
 }
 
 ### 6. Fazer logout (apenas registra o logout, não desvincula nós)
-POST http://localhost:5000/api/Auth/logout
+POST http://localhost:8000/api/Auth/logout
 Authorization: Bearer {{token}}
 
 ### 7. Tentar acessar nós do usuário após logout (deve retornar 401)
-GET http://localhost:5000/api/Auth/nodes
+GET http://localhost:8000/api/Auth/nodes
 Authorization: Bearer {{token}}

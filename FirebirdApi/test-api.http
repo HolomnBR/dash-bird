@@ -1,10 +1,10 @@
 ### Teste da API de Configuração de Bases de Dados Firebird
 
 ### 1. Listar bases de dados configuradas
-GET http://localhost:5000/api/DatabaseConfig/databases
+GET http://localhost:8000/api/DatabaseConfig/databases
 
 ### 2. Adicionar nova base de dados TAVAGUA
-POST http://localhost:5000/api/DatabaseConfig/databases
+POST http://localhost:8000/api/DatabaseConfig/databases
 Content-Type: application/json
 
 {
@@ -18,7 +18,7 @@ Content-Type: application/json
 }
 
 ### 3. Adicionar outra base de dados de exemplo
-POST http://localhost:5000/api/DatabaseConfig/databases
+POST http://localhost:8000/api/DatabaseConfig/databases
 Content-Type: application/json
 
 {
@@ -35,13 +35,13 @@ Content-Type: application/json
 GET http://localhost:5175/api/DatabaseConfig/databases
 
 ### 5. Testar conexão com a primeira base (substitua {id} pelo GUID retornado)
-GET http://localhost:5000/api/DatabaseConfig/databases/{id}/test-connection
+GET http://localhost:8000/api/DatabaseConfig/databases/{id}/test-connection
 
 ### 6. Listar tabelas da primeira base
-GET http://localhost:5000/api/DatabaseConfig/databases/{id}/tables
+GET http://localhost:8000/api/DatabaseConfig/databases/{id}/tables
 
 ### 6.1 Obter schema de tabelas específicas
-POST http://localhost:5000/api/DatabaseConfig/databases/{id}/table-schema
+POST http://localhost:8000/api/DatabaseConfig/databases/{id}/table-schema
 Content-Type: application/json
 
 {
@@ -49,7 +49,7 @@ Content-Type: application/json
 }
 
 ### 6.2 Gerar snapshot completo da base de dados
-POST http://localhost:5000/api/DatabaseConfig/databases/{id}/generate-snapshot
+POST http://localhost:8000/api/DatabaseConfig/databases/{id}/generate-snapshot
 
 # Este endpoint irá:
 # 1. Listar todas as tabelas
@@ -59,10 +59,10 @@ POST http://localhost:5000/api/DatabaseConfig/databases/{id}/generate-snapshot
 # 5. Salvar tudo em um JSON local na pasta "snapshots"
 
 ### 7. Obter configuração específica de uma base
-GET http://localhost:5000/api/DatabaseConfig/databases/{id}
+GET http://localhost:8000/api/DatabaseConfig/databases/{id}
 
 ### 8. Atualizar configuração de uma base
-PUT http://localhost:5000/api/DatabaseConfig/databases/{id}
+PUT http://localhost:8000/api/DatabaseConfig/databases/{id}
 Content-Type: application/json
 
 {
@@ -76,7 +76,7 @@ Content-Type: application/json
 }
 
 ### 9. Remover uma base de dados (substitua {id} pelo GUID)
-DELETE http://localhost:5000/api/DatabaseConfig/databases/{id}
+DELETE http://localhost:8000/api/DatabaseConfig/databases/{id}
 
 ### 10. Verificar se foi removida
 GET http://localhost:5175/api/DatabaseConfig/databases

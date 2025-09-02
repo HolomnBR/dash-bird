@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { syncService, SyncStatus } from '../services/SyncService'
-import { localDataService, DatabaseSnapshot } from '../services/LocalDataService'
+import { syncService } from '../services/SyncService'
+import type { SyncStatus } from '../services/SyncService'
+import { localDataService } from '../services/LocalDataService'
 
 export interface UseSyncOptions {
   databaseId: string
@@ -24,7 +25,7 @@ export interface UseSyncReturn {
 export function useSync({ 
   databaseId, 
   autoStart = true, 
-  syncInterval = 3600000 // 1 hora por padrão
+  // syncInterval = 3600000 // 1 hora por padrão
 }: UseSyncOptions): UseSyncReturn {
   const [isInitialSyncCompleted, setIsInitialSyncCompleted] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)

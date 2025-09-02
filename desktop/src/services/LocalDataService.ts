@@ -1,5 +1,5 @@
 import { api } from '../api/http'
-import { TableSyncData } from './SyncService'
+import type { TableSyncData } from './SyncService'
 
 export interface DatabaseSnapshot {
   id: string
@@ -267,7 +267,7 @@ export class LocalDataService {
   /**
    * Aplica dados de uma tabela específica
    */
-  private async applyTableData(databaseId: string, tableName: string, data: any[]): Promise<void> {
+  private async applyTableData(_databaseId: string, tableName: string, data: any[]): Promise<void> {
     if (!data || data.length === 0) {
       return
     }

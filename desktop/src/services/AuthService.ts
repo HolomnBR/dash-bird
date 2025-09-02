@@ -1,4 +1,4 @@
-import { api } from '../api/http'
+// import { api } from '../api/http'
 
 export interface LocalUserRegisterRequest {
   name: string

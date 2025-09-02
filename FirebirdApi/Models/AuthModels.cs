@@ -64,7 +64,7 @@ namespace FirebirdApi.Models
         [MaxLength(45)]
         public string IpAddress { get; set; } = string.Empty;
         
-        public int Port { get; set; } = 5000;
+        public int Port { get; set; } = 8000;
         
         [MaxLength(500)]
         public string? DatabasePath { get; set; }

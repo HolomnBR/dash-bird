@@ -1,9 +1,9 @@
-import React from 'react'
+// import React from 'react'
 import { useSync } from '../../hooks/useSync'
 import { Button } from '../atoms/Button'
 import { 
   Cloud, 
-  CloudOff, 
+  // CloudOff, 
   RefreshCw, 
   CheckCircle, 
   AlertCircle, 

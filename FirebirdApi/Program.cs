@@ -1,6 +1,5 @@
 using FirebirdApi.Models;
 using FirebirdApi.Services;
-using FirebirdApi.Controllers;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
 // removed Filters due to incompatibility
@@ -58,37 +57,18 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configurar HttpClient para comunicação com o servidor cloud
-builder.Services.AddHttpClient<SyncController>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(30);
-    client.DefaultRequestHeaders.Add("User-Agent", "FirebirdApi-Desktop/1.0");
-});
 
-// Configurar HttpClient para DatabaseConfigController
-builder.Services.AddHttpClient<DatabaseConfigController>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(30);
-    client.DefaultRequestHeaders.Add("User-Agent", "FirebirdApi-Desktop/1.0");
-});
+// Registrar HttpClient
+builder.Services.AddHttpClient();
 
 // Registrar o serviço de configuração de bases de dados
 builder.Services.AddSingleton<IDatabaseConfigService, DatabaseConfigService>();
-
-// Registrar o serviço de MachineId
-builder.Services.AddSingleton<IMachineIdService, MachineIdService>();
 
 // Registrar o serviço Firebird (será configurado dinamicamente)
 builder.Services.AddScoped<IFirebirdService, FirebirdService>();
 
 // Registrar o serviço gRPC Client
-builder.Services.AddSingleton<IGrpcClientService, GrpcClientService>();
-
-// Registrar o serviço de autenticação
-builder.Services.AddScoped<IAuthService, AuthService>();
-
-// Registrar HttpContextAccessor para acesso ao contexto HTTP
-builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 
 var app = builder.Build();
 

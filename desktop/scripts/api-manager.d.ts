@@ -1,5 +1,6 @@
 declare class ApiManager {
   constructor();
+  init(): void;
   checkApiStatus(): Promise<boolean>;
   startApi(): Promise<void>;
   waitForApiReady(maxAttempts?: number): Promise<boolean>;

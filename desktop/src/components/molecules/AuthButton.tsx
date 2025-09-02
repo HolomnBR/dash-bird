@@ -8,7 +8,7 @@ export const AuthButton: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
 
-  const handleAuthSuccess = (token: string, userData: any) => {
+  const handleAuthSuccess = (_token: string, _userData: any) => {
     setShowAuthModal(false)
     // O hook useAuth já gerencia o estado automaticamente
   }

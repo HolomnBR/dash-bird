@@ -41,7 +41,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         })
 
         if (result.success) {
-          onAuthSuccess(result.data.token, result.data.user)
+          onAuthSuccess((result.data as any).token, (result.data as any).user)
           onClose()
         } else {
           setError(result.error || 'Erro ao fazer login')
@@ -61,7 +61,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         })
 
         if (result.success) {
-          onAuthSuccess(result.data.token, result.data.user)
+          onAuthSuccess((result.data as any).token, (result.data as any).user)
           onClose()
         } else {
           setError(result.error || 'Erro ao registrar usuário')

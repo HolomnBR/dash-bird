@@ -1,5 +1,5 @@
-import { api } from './http'
-import { TableSyncData } from '../services/SyncService'
+// import { api } from './http'
+import type { TableSyncData } from '../services/SyncService'
 
 export interface ReceiveServerDataRequest {
   desktopNodeId: string
@@ -56,7 +56,7 @@ export class SyncApi {
   /**
    * Aplica dados de uma tabela na base local
    */
-  private static async applyTableDataToLocal(databaseId: string, tableData: TableSyncData): Promise<void> {
+  private static async applyTableDataToLocal(_databaseId: string, tableData: TableSyncData): Promise<void> {
     try {
       // Aqui você implementaria a lógica para aplicar os dados
       // Por exemplo, INSERT/UPDATE dos registros na base local

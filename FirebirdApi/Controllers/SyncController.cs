@@ -398,7 +398,7 @@ namespace FirebirdApi.Controllers
         public string Name { get; set; } = string.Empty;
         public string MachineId { get; set; } = string.Empty;
         public string IpAddress { get; set; } = string.Empty;
-        public int Port { get; set; } = 5000;
+        public int Port { get; set; } = 8000;
         public string? DatabasePath { get; set; }
         public string? Version { get; set; }
         public string? OperatingSystem { get; set; }
