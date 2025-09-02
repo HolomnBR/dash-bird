@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "o4kfUqHCNXs=",
+  "dgSpecHash": "QwvSBG8cdmY=",
   "success": true,
-  "projectFilePath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FirebirdApi\\FirebirdApi.csproj",
+  "projectFilePath": "C:\\Projetos\\git.hub\\HolomnProject\\dash-bird\\FireBirdAPI\\FirebirdApi.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Lucas Argate\\.nuget\\packages\\firebirdsql.data.firebirdclient\\10.3.3\\firebirdsql.data.firebirdclient.10.3.3.nupkg.sha512",
     "C:\\Users\\Lucas Argate\\.nuget\\packages\\google.protobuf\\3.25.1\\google.protobuf.3.25.1.nupkg.sha512",
