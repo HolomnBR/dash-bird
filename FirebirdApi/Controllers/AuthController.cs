@@ -11,12 +11,14 @@ namespace FirebirdApi.Controllers
         private readonly IAuthService _authService;
         private readonly ILogger<AuthController> _logger;
         private readonly ITokenStorageService _tokenStorageService;
+        private readonly ICommandStreamService _commandStreamService;
 
-        public AuthController(IAuthService authService, ILogger<AuthController> logger, ITokenStorageService tokenStorageService)
+        public AuthController(IAuthService authService, ILogger<AuthController> logger, ITokenStorageService tokenStorageService, ICommandStreamService commandStreamService)
         {
             _authService = authService;
             _logger = logger;
             _tokenStorageService = tokenStorageService;
+            _commandStreamService = commandStreamService;
         }
 
         /// <summary>
@@ -44,6 +46,19 @@ namespace FirebirdApi.Controllers
                 {
                     await _tokenStorageService.StoreTokenAsync(result.Token);
                     _logger.LogInformation("Token armazenado localmente após registro do usuário: {Email}", request.Email);
+                    
+                    // Tentar reconectar o CommandStreamService com o novo token
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _commandStreamService.TryReconnectWithStoredTokenAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Erro ao tentar reconectar CommandStreamService após registro");
+                        }
+                    });
                 }
                 
                 return Ok(result);
@@ -86,6 +101,19 @@ namespace FirebirdApi.Controllers
                 {
                     await _tokenStorageService.StoreTokenAsync(result.Token);
                     _logger.LogInformation("Token armazenado localmente após login do usuário: {Email}", request.Email);
+                    
+                    // Tentar reconectar o CommandStreamService com o novo token
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _commandStreamService.TryReconnectWithStoredTokenAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Erro ao tentar reconectar CommandStreamService após login");
+                        }
+                    });
                 }
                 
                 return Ok(result);
@@ -540,6 +568,67 @@ namespace FirebirdApi.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro interno durante logout");
+                return StatusCode(500, new { message = "Erro interno do servidor" });
+            }
+        }
+
+        /// <summary>
+        /// Verifica o status da conexão gRPC com o servidor cloud
+        /// </summary>
+        /// <returns>Status da conexão</returns>
+        [HttpGet("grpc-status")]
+        [ProducesResponseType(typeof(object), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 500)]
+        public async Task<IActionResult> GetGrpcConnectionStatus()
+        {
+            try
+            {
+                var isConnected = _commandStreamService.IsConnected;
+                var connectionId = _commandStreamService.CurrentConnectionId;
+                var hasToken = await _tokenStorageService.HasValidTokenAsync();
+
+                return Ok(new
+                {
+                    isConnected = isConnected,
+                    connectionId = connectionId,
+                    hasStoredToken = hasToken,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao verificar status da conexão gRPC");
+                return StatusCode(500, new { message = "Erro interno do servidor" });
+            }
+        }
+
+        /// <summary>
+        /// Força a reconexão do serviço gRPC
+        /// </summary>
+        /// <returns>Resultado da reconexão</returns>
+        [HttpPost("reconnect-grpc")]
+        [ProducesResponseType(typeof(object), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 500)]
+        public async Task<IActionResult> ReconnectGrpc()
+        {
+            try
+            {
+                await _commandStreamService.TryReconnectWithStoredTokenAsync();
+                
+                var isConnected = _commandStreamService.IsConnected;
+                var connectionId = _commandStreamService.CurrentConnectionId;
+
+                return Ok(new
+                {
+                    message = "Tentativa de reconexão realizada",
+                    isConnected = isConnected,
+                    connectionId = connectionId,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao tentar reconectar gRPC");
                 return StatusCode(500, new { message = "Erro interno do servidor" });
             }
         }

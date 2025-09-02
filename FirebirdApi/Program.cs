@@ -71,7 +71,7 @@ builder.Services.AddScoped<IFirebirdService, FirebirdService>();
 builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 
 // Registrar o serviço MachineId
-builder.Services.AddScoped<IMachineIdService, MachineIdService>();
+builder.Services.AddSingleton<IMachineIdService, MachineIdService>();
 
 // Registrar o serviço de autenticação
 builder.Services.AddScoped<IAuthService, AuthService>();

@@ -15,7 +15,6 @@ namespace FirebirdApi.Services
         private readonly IConfiguration _configuration;
         private readonly IMachineIdService _machineIdService;
         private readonly IServiceProvider _serviceProvider;
-        private readonly IAuthService _authService;
         private readonly ITokenStorageService _tokenStorageService;
         private readonly SemaphoreSlim _reconnectSemaphore = new(1, 1);
         
@@ -44,14 +43,12 @@ namespace FirebirdApi.Services
             IConfiguration configuration,
             IMachineIdService machineIdService,
             IServiceProvider serviceProvider,
-            IAuthService authService,
             ITokenStorageService tokenStorageService)
         {
             _logger = logger;
             _configuration = configuration;
             _machineIdService = machineIdService;
             _serviceProvider = serviceProvider;
-            _authService = authService;
             _tokenStorageService = tokenStorageService;
             
             // Criar channel para comunicação com o host
@@ -418,45 +415,92 @@ namespace FirebirdApi.Services
 
         private async Task HandleDisconnectionAsync()
         {
-            if (_reconnectAttempts >= _maxReconnectAttempts)
-            {
-                _logger.LogError("Máximo de tentativas de reconexão atingido ({MaxAttempts}). Parando tentativas automáticas.", 
-                    _maxReconnectAttempts);
-                return;
-            }
-
-            _reconnectAttempts++;
-            _logger.LogWarning("Conexão perdida. Tentativa de reconexão {Attempt}/{MaxAttempts} em {Delay}s...", 
-                _reconnectAttempts, _maxReconnectAttempts, _reconnectDelaySeconds);
-
-            // Aguardar antes de tentar reconectar
-            await Task.Delay(TimeSpan.FromSeconds(_reconnectDelaySeconds));
-
+            await _reconnectSemaphore.WaitAsync();
             try
             {
-                // Limpar recursos da conexão anterior
-                await StopStreamingAsync();
+                if (_reconnectAttempts >= _maxReconnectAttempts)
+                {
+                    _logger.LogError("Máximo de tentativas de reconexão atingido ({MaxAttempts}). Parando tentativas automáticas.", 
+                        _maxReconnectAttempts);
+                    return;
+                }
 
-                // Tentar reconectar
+                _reconnectAttempts++;
+                _logger.LogWarning("Conexão perdida. Tentativa de reconexão {Attempt}/{MaxAttempts} em {Delay}s...", 
+                    _reconnectAttempts, _maxReconnectAttempts, _reconnectDelaySeconds);
+
+                // Aguardar antes de tentar reconectar
+                await Task.Delay(TimeSpan.FromSeconds(_reconnectDelaySeconds));
+
+                try
+                {
+                    // Limpar recursos da conexão anterior
+                    await StopStreamingAsync();
+
+                    // Tentar reconectar
+                    var machineId = _machineIdService.GetMachineId();
+                    var connectionId = Guid.NewGuid().ToString();
+                    var authToken = await GetCurrentUserTokenAsync();
+
+                    await StartStreamingAsync(connectionId, machineId, authToken);
+                    
+                    _logger.LogInformation("Reconexão bem-sucedida na tentativa {Attempt}", _reconnectAttempts);
+                    _reconnectAttempts = 0; // Reset contador em caso de sucesso
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Falha na tentativa de reconexão {Attempt}/{MaxAttempts}", 
+                        _reconnectAttempts, _maxReconnectAttempts);
+                    
+                    // Tentar novamente se ainda não atingiu o limite
+                    if (_reconnectAttempts < _maxReconnectAttempts)
+                    {
+                        await HandleDisconnectionAsync();
+                    }
+                }
+            }
+            finally
+            {
+                _reconnectSemaphore.Release();
+            }
+        }
+
+        public async Task TryReconnectWithStoredTokenAsync()
+        {
+            await _reconnectSemaphore.WaitAsync();
+            try
+            {
+                if (IsConnected)
+                {
+                    _logger.LogInformation("Já conectado, não é necessário reconectar");
+                    return;
+                }
+
+                var hasToken = await _tokenStorageService.HasValidTokenAsync();
+                if (!hasToken)
+                {
+                    _logger.LogInformation("Nenhum token válido armazenado, não é possível reconectar");
+                    return;
+                }
+
+                _logger.LogInformation("Tentando reconectar com token armazenado...");
+                
                 var machineId = _machineIdService.GetMachineId();
                 var connectionId = Guid.NewGuid().ToString();
                 var authToken = await GetCurrentUserTokenAsync();
 
                 await StartStreamingAsync(connectionId, machineId, authToken);
                 
-                _logger.LogInformation("Reconexão bem-sucedida na tentativa {Attempt}", _reconnectAttempts);
-                _reconnectAttempts = 0; // Reset contador em caso de sucesso
+                _logger.LogInformation("Reconexão com token armazenado bem-sucedida");
+                _reconnectAttempts = 0; // Reset contador
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falha na tentativa de reconexão {Attempt}/{MaxAttempts}", 
-                    _reconnectAttempts, _maxReconnectAttempts);
-                
-                // Tentar novamente se ainda não atingiu o limite
-                if (_reconnectAttempts < _maxReconnectAttempts)
-                {
-                    await HandleDisconnectionAsync();
-                }
+                _logger.LogError(ex, "Erro ao tentar reconectar com token armazenado");
+            }
+            finally
+            {
+                _reconnectSemaphore.Release();
             }
         }
     }

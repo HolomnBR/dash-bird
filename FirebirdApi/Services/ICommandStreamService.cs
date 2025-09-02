@@ -7,6 +7,7 @@ namespace FirebirdApi.Services
         Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null);
         Task StopStreamingAsync();
         Task SendResponseAsync(string commandId, object response);
+        Task TryReconnectWithStoredTokenAsync();
         bool IsConnected { get; }
         string? CurrentConnectionId { get; }
         ChannelReader<CommandReceivedEventArgs> CommandReceived { get; }
