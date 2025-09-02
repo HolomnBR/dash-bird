@@ -11,7 +11,7 @@ const __dirname = dirname(__filename);
 class ApiManager {
   constructor() {
     this.apiProcess = null;
-    this.apiPort = 5000; // Porta padrão da API
+    this.apiPort = 8000; // Porta padrão da API
     
     // Em desenvolvimento, usa o caminho local
     // Em produção, usa o caminho dos recursos do Electron

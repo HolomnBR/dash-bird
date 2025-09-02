@@ -59,7 +59,7 @@ export class SyncService {
           name: process.env.COMPUTERNAME || 'Unknown',
           machineId: this.machineId,
           ipAddress: await this.getLocalIpAddress(),
-          port: 5000,
+          port: 8000,
           databasePath,
           version: process.env.npm_package_version || '1.0.0',
           operatingSystem: process.platform

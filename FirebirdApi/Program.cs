@@ -49,8 +49,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
-                "http://localhost:5000",
-                "http://127.0.0.1:5000"
+                "http://localhost:8000",
+                "http://127.0.0.1:8000"
             )
             .AllowAnyHeader()
             .AllowAnyMethod();
@@ -106,7 +106,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Configurar porta e logging
-var port = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5000";
+var port = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:8000";
 Console.WriteLine($"🚀 API iniciando na porta: {port}");
 
 // Configurar a URL para o app rodar

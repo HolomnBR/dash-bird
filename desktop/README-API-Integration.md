@@ -7,7 +7,7 @@ Este projeto agora inclui integração automática com a API .NET Core FirebirdA
 ### 1. Verificação Automática da API
 - Quando o aplicativo Electron é iniciado, ele automaticamente verifica se a API está rodando
 - Se a API não estiver rodando, ela é iniciada automaticamente
-- A API roda na porta 5000 por padrão
+- A API roda na porta 8000 por padrão
 
 ### 2. Build da API
 - O projeto inclui scripts para fazer build da API .NET Core
@@ -68,7 +68,7 @@ desktop/
 ## Configuração
 
 ### Porta da API
-- Padrão: 5000
+- Padrão: 8000
 - Configurável via variável de ambiente `ASPNETCORE_URLS`
 
 ### Build da API
@@ -86,7 +86,7 @@ desktop/
 3. Verifique logs no console do Electron
 
 ### Erro de porta
-1. Verifique se a porta 5000 está livre
+1. Verifique se a porta 8000 está livre
 2. Configure outra porta via `ASPNETCORE_URLS`
 3. Atualize o `api-manager.js` com a nova porta
 
@@ -98,7 +98,7 @@ desktop/
 ## Desenvolvimento
 
 ### Modo Dev
-- A API deve estar rodando em `http://localhost:5000`
+- A API deve estar rodando em `http://localhost:8000`
 - O frontend se conecta via CORS configurado
 
 ### Modo Produção

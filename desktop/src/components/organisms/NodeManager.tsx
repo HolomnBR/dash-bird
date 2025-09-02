@@ -29,7 +29,7 @@ interface WindowWithApi {
     getNodeConfig: () => Promise<{ nodeId: string; machineId: string; machineName: string; alias?: string; createdAt: string }>
   }
   auth?: {
-    checkNodeConnection: (data: { token: string; machineId: string }) => Promise<{ success: boolean; isConnected?: boolean; node?: NodeInfo; error?: string }>
+    checkNodeConnection: (data: { token: string; machineId: string }) => Promise<{ success: boolean; isConnected?: boolean; node?: NodeInfo; wasUnbound?: boolean; error?: string }>
   }
 }
 
@@ -82,34 +82,45 @@ export function NodeManager() {
     }
   }
 
-  const checkNodeConnection = useCallback(async () => {
+  const checkNodeConnection = useCallback(async (forceServerCheck = false) => {
     if (!nodeConfig || !token) return
 
     try {
-      // Verificar primeiro no localStorage se o nó está conectado
-      const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
-      const connectedNode = connectedNodes.find((node: ConnectedNode) => node.machineId === nodeConfig.machineId)
-      
-      if (connectedNode) {
-        console.log('✅ Nó encontrado no localStorage como conectado:', connectedNode)
-        setIsNodeConnected(true)
-        setConnectedNodeId(connectedNode.nodeId)
-        return
+      // Se não for verificação forçada, verificar primeiro no localStorage
+      if (!forceServerCheck) {
+        const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
+        const connectedNode = connectedNodes.find((node: ConnectedNode) => node.machineId === nodeConfig.machineId)
+        
+        if (connectedNode) {
+          console.log('✅ Nó encontrado no localStorage como conectado:', connectedNode)
+          setIsNodeConnected(true)
+          setConnectedNodeId(connectedNode.nodeId)
+          return
+        }
       }
 
-      // Se não encontrou no localStorage, fazer requisição para o servidor
-      console.log('🔍 Nó não encontrado no localStorage, verificando no servidor...')
+      // Fazer requisição para o servidor (sempre para verificações automáticas)
+      console.log('🔍 Verificando conexão no servidor...', forceServerCheck ? '(verificação forçada)' : '(nó não encontrado no localStorage)')
       const result = await window.auth.checkNodeConnection({
         token,
         machineId: nodeConfig.machineId
       })
       
       if (result.success) {
-        setIsNodeConnected(result.isConnected || false)
+        console.log('📡 Resposta do servidor:', { 
+          isConnected: result.isConnected, 
+          wasUnbound: result.wasUnbound, 
+          hasNode: !!result.node 
+        })
+        
+        const wasConnected = isNodeConnected
+        const isNowConnected = result.isConnected || false
+        
+        setIsNodeConnected(isNowConnected)
         setConnectedNodeId((result.node as { id?: string })?.id || null)
         
         // Se conectado, salvar no localStorage
-        if (result.isConnected && result.node) {
+        if (isNowConnected && result.node) {
           const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
           const nodeInfo = result.node as NodeInfo
           const existingIndex = connectedNodes.findIndex((node: ConnectedNode) => node.machineId === nodeConfig.machineId)
@@ -123,15 +134,64 @@ export function NodeManager() {
           localStorage.setItem('connected_nodes', JSON.stringify(connectedNodes))
           console.log('💾 Nó salvo no localStorage:', { machineId: nodeConfig.machineId, nodeId: nodeInfo.id })
         }
+        
+        // Se o nó foi desvinculado remotamente, limpar o localStorage
+        if (result.wasUnbound || (wasConnected && !isNowConnected)) {
+          console.log('🚫 Nó foi desvinculado remotamente, limpando localStorage...', { 
+            wasUnbound: result.wasUnbound, 
+            wasConnected, 
+            isNowConnected 
+          })
+          const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
+          const filteredNodes = connectedNodes.filter((node: ConnectedNode) => node.machineId !== nodeConfig.machineId)
+          localStorage.setItem('connected_nodes', JSON.stringify(filteredNodes))
+          console.log('🧹 Nó removido do localStorage:', { machineId: nodeConfig.machineId })
+        }
+      } else {
+        console.error('❌ Erro na verificação de conexão:', result.error)
       }
     } catch (error) {
       console.error('Erro ao verificar conexão do nó:', error)
     }
-  }, [nodeConfig, token])
+  }, [nodeConfig, token, isNodeConnected])
 
+  // Verificação inicial quando o componente é montado
   useEffect(() => {
     if (nodeConfig && isAuthenticated && token) {
-      checkNodeConnection()
+      console.log('🔄 Verificação inicial de conexão do nó...')
+      checkNodeConnection(true) // Forçar verificação no servidor
+    }
+  }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
+
+  // Verificação periódica a cada 30 segundos
+  useEffect(() => {
+    if (!nodeConfig || !isAuthenticated || !token) return
+
+    console.log('⏰ Iniciando verificação periódica de conexão...')
+    const interval = setInterval(() => {
+      console.log('🔄 Verificação periódica de conexão do nó...')
+      checkNodeConnection(true) // Forçar verificação no servidor
+    }, 30000) // 30 segundos
+
+    return () => {
+      console.log('⏹️ Parando verificação periódica de conexão...')
+      clearInterval(interval)
+    }
+  }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
+
+  // Verificação quando a janela ganha foco
+  useEffect(() => {
+    if (!nodeConfig || !isAuthenticated || !token) return
+
+    const handleFocus = () => {
+      console.log('👁️ Janela ganhou foco, verificando conexão do nó...')
+      checkNodeConnection(true) // Forçar verificação no servidor
+    }
+
+    window.addEventListener('focus', handleFocus)
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus)
     }
   }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
 
@@ -298,6 +358,17 @@ export function NodeManager() {
               )}
             </div>
           )}
+        </div>
+
+        {/* Botão de Verificação Manual */}
+        <div className="flex justify-center">
+          <button
+            onClick={() => checkNodeConnection(true)}
+            disabled={loading}
+            className="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Verificando...' : '🔄 Verificar Conexão'}
+          </button>
         </div>
 
         {/* Mensagem de Status e Ações */}

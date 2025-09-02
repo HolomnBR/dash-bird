@@ -75,7 +75,7 @@ O erro "Erro ao conectar nó" pode ocorrer por várias razões. Este guia ajuda 
 - Timeout ou erro de rede
 
 **Solução:**
-1. Verifique se a API está rodando na porta 5000
+1. Verifique se a API está rodando na porta 8000
 2. Reinicie a aplicação
 3. Verifique se não há firewall bloqueando
 
@@ -102,7 +102,7 @@ O erro "Erro ao conectar nó" pode ocorrer por várias razões. Este guia ajuda 
 
 ### Verificar se a API está rodando:
 ```bash
-netstat -an | findstr :5000
+netstat -an | findstr :8000
 ```
 
 ### Verificar logs da aplicação:

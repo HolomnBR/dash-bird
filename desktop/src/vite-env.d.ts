@@ -34,7 +34,7 @@ declare interface Window {
     bindNode: (data: { token: string; anonymousToken: string }) => Promise<{ success: boolean; data?: unknown; error?: string }>
     getUserNodes: (token: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
     getAvailableNodes: () => Promise<{ success: boolean; data?: unknown; error?: string }>
-    checkNodeConnection: (data: { token: string; machineId: string }) => Promise<{ success: boolean; isConnected?: boolean; node?: unknown; error?: string }>
+    checkNodeConnection: (data: { token: string; machineId: string }) => Promise<{ success: boolean; isConnected?: boolean; node?: unknown; wasUnbound?: boolean; error?: string }>
     bindCurrentNode: (data: { token: string; machineId: string }) => Promise<{ success: boolean; data?: unknown; error?: string }>
     unbindNode: (data: { token: string; nodeId: string }) => Promise<{ success: boolean; data?: unknown; error?: string }>
   }

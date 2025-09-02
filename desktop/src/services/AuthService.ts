@@ -68,7 +68,7 @@ export class AuthService {
   private authToken: string | null = null
   private user: LocalUserResponse | null = null
 
-  constructor(localApiUrl: string = 'http://localhost:5000') {
+  constructor(localApiUrl: string = 'http://localhost:8000') {
     this.localApiUrl = localApiUrl
     this.loadStoredAuth()
   }

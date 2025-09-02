@@ -13,7 +13,7 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>
   getUserNodes: (token: string) => Promise<{ success: boolean; data?: any; error?: string }>
   getAvailableNodes: () => Promise<{ success: boolean; data?: any; error?: string }>
-  checkNodeConnection: (data: { token: string; machineId: string }) => Promise<{ success: boolean; isConnected?: boolean; node?: any; error?: string }>
+  checkNodeConnection: (data: { token: string; machineId: string }) => Promise<{ success: boolean; isConnected?: boolean; node?: any; wasUnbound?: boolean; error?: string }>
   bindCurrentNode: (data: { token: string; machineId: string }) => Promise<{ success: boolean; data?: any; error?: string }>
   unbindNode: (data: { token: string; nodeId: string }) => Promise<{ success: boolean; data?: any; error?: string }>
 }

@@ -119,12 +119,12 @@ function getOrCreateNodeConfig(): NodeConfig {
 // Função para registrar nó anônimo via API local (que por sua vez registra no servidor cloud)
 async function registerAnonymousNodeInCloud(nodeConfig: NodeConfig) {
   try {
-    const localApiUrl = 'http://localhost:5000' // API local
+    const localApiUrl = 'http://localhost:5001' // API local
     const registrationData = {
       name: `${nodeConfig.machineName}${nodeConfig.alias ? ` (${nodeConfig.alias})` : ''}`,
       machineId: nodeConfig.machineId,
       ipAddress: '127.0.0.1', // IP local
-      port: 5000, // Porta da API local
+      port: 8000, // Porta da API local
       databasePath: null, // Será preenchido quando configurar DB
       version: '1.0.0',
       operatingSystem: process.platform
@@ -284,7 +284,7 @@ ipcMain.handle('api:checkStatus', async () => {
 // Auth handlers
 ipcMain.handle('auth:register', async (_event, userData: { name: string; email: string; password: string }) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/Auth/register`, {
       method: 'POST',
       headers: {
@@ -329,7 +329,7 @@ ipcMain.handle('auth:register', async (_event, userData: { name: string; email: 
 
 ipcMain.handle('auth:login', async (_event, credentials: { email: string; password: string }) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/Auth/login`, {
       method: 'POST',
       headers: {
@@ -374,7 +374,7 @@ ipcMain.handle('auth:login', async (_event, credentials: { email: string; passwo
 
 ipcMain.handle('auth:logout', async (_event, token: string) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     console.log('Iniciando logout para token:', token.substring(0, 20) + '...')
     
     // 1. Primeiro, obter todos os nós do usuário
@@ -388,13 +388,13 @@ ipcMain.handle('auth:logout', async (_event, token: string) => {
     })
 
     let unboundNodesCount = 0
-    let unboundNodeIds: string[] = []
+    const unboundNodeIds: string[] = []
 
     console.log('Status da resposta de nós:', nodesResponse.status)
     
     if (nodesResponse.ok) {
       const nodesData = await nodesResponse.json()
-      const userNodes = nodesData || []
+      const userNodes: unknown[] = Array.isArray(nodesData) ? nodesData : []
       
       console.log('Dados dos nós recebidos:', nodesData)
       console.log(`Encontrados ${userNodes.length} nós para desvincular`)
@@ -402,24 +402,26 @@ ipcMain.handle('auth:logout', async (_event, token: string) => {
       // 2. Desvincular cada nó individualmente
       for (const node of userNodes) {
         try {
+          const nodeData = node as { id: string; name: string }
           const unbindResponse = await fetch(`${localApiUrl}/api/Auth/unbind-node`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ nodeId: node.id })
+            body: JSON.stringify({ nodeId: nodeData.id })
           })
 
           if (unbindResponse.ok) {
             unboundNodesCount++
-            unboundNodeIds.push(node.id)
-            console.log(`Nó desvinculado: ${node.name} (${node.id})`)
+            unboundNodeIds.push(nodeData.id)
+            console.log(`Nó desvinculado: ${nodeData.name} (${nodeData.id})`)
           } else {
-            console.warn(`Falha ao desvincular nó: ${node.name} (${node.id})`)
+            console.warn(`Falha ao desvincular nó: ${nodeData.name} (${nodeData.id})`)
           }
         } catch (unbindError) {
-          console.error(`Erro ao desvincular nó ${node.id}:`, unbindError)
+          const nodeData = node as { id: string }
+          console.error(`Erro ao desvincular nó ${nodeData.id}:`, unbindError)
         }
       }
     } else {
@@ -446,7 +448,7 @@ ipcMain.handle('auth:logout', async (_event, token: string) => {
         if (responseText) {
           result = JSON.parse(responseText)
         }
-      } catch (parseError) {
+      } catch {
         console.warn('Resposta de logout não é JSON válido, usando resposta vazia')
       }
       
@@ -466,7 +468,7 @@ ipcMain.handle('auth:logout', async (_event, token: string) => {
         if (responseText) {
           errorData = JSON.parse(responseText)
         }
-      } catch (parseError) {
+      } catch {
         console.warn('Resposta de erro não é JSON válido')
       }
       
@@ -481,7 +483,7 @@ ipcMain.handle('auth:logout', async (_event, token: string) => {
 
 ipcMain.handle('auth:getProfile', async (_event, token: string) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/Auth/profile`, {
       method: 'GET',
       headers: {
@@ -512,7 +514,7 @@ ipcMain.handle('auth:getProfile', async (_event, token: string) => {
 
 ipcMain.handle('auth:validateToken', async (_event, token: string) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/Auth/validate-token`, {
       method: 'POST',
       headers: {
@@ -543,7 +545,7 @@ ipcMain.handle('auth:validateToken', async (_event, token: string) => {
 
 ipcMain.handle('auth:bindNode', async (_event, data: { token: string; anonymousToken: string }) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/Auth/bind-node`, {
       method: 'POST',
       headers: {
@@ -588,7 +590,7 @@ ipcMain.handle('auth:bindNode', async (_event, data: { token: string; anonymousT
 
 ipcMain.handle('auth:getUserNodes', async (_event, token: string) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/User/nodes`, {
       method: 'GET',
       headers: {
@@ -631,7 +633,7 @@ ipcMain.handle('auth:getUserNodes', async (_event, token: string) => {
 
 ipcMain.handle('auth:getAvailableNodes', async () => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/AnonymousNode/available`, {
       method: 'GET',
     })
@@ -673,7 +675,7 @@ ipcMain.handle('auth:checkNodeConnection', async (_event, data: { token: string;
   try {
     console.log('🔍 Verificando conexão do nó:', { machineId: data.machineId, tokenLength: data.token?.length })
     
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     console.log('🌐 Fazendo requisição para:', `${localApiUrl}/api/User/nodes`)
     
     const response = await fetch(`${localApiUrl}/api/User/nodes`, {
@@ -705,7 +707,8 @@ ipcMain.handle('auth:checkNodeConnection', async (_event, data: { token: string;
         return { 
           success: true, 
           isConnected: !!connectedNode,
-          node: connectedNode || null
+          node: connectedNode || null,
+          wasUnbound: !connectedNode // Indica se o nó foi desvinculado remotamente
         }
       } catch (parseError) {
         console.error('❌ Erro ao fazer parse da resposta:', parseError)
@@ -745,7 +748,7 @@ ipcMain.handle('auth:bindCurrentNode', async (_event, data: { token: string; mac
       return { success: false, error: 'API não está rodando. Tente reiniciar a aplicação.' }
     }
     
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     console.log('🌐 Fazendo requisição para:', `${localApiUrl}/api/Auth/bind-current-node`)
     
     const response = await fetch(`${localApiUrl}/api/Auth/bind-current-node`, {
@@ -809,7 +812,7 @@ ipcMain.handle('auth:bindCurrentNode', async (_event, data: { token: string; mac
 
 ipcMain.handle('auth:unbindNode', async (_event, data: { token: string; nodeId: string }) => {
   try {
-    const localApiUrl = 'http://localhost:5000'
+    const localApiUrl = 'http://localhost:5001'
     const response = await fetch(`${localApiUrl}/api/User/unbind-node`, {
       method: 'POST',
       headers: {
