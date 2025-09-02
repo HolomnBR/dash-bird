@@ -68,10 +68,23 @@ class ApiManager {
 
     console.log('🚀 Iniciando API a partir do diretório do usuário...');
 
+    // Configurar variáveis de ambiente para a API
+    const apiDir = path.dirname(this.apiExePath);
+    const env = {
+      ...process.env,
+      ASPNETCORE_URLS: 'http://localhost:8000',
+      ASPNETCORE_ENVIRONMENT: 'Production',
+      // Configurar caminhos relativos para a API
+      API_BASE_PATH: apiDir,
+      DATABASE_CONFIG_PATH: path.join(apiDir, 'config.json'),
+      APP_SETTINGS_PATH: path.join(apiDir, 'appsettings.json')
+    };
+
     this.apiProcess = spawn(this.apiExePath, [], {
-      cwd: path.dirname(this.apiExePath),
+      cwd: apiDir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: false
+      detached: false,
+      env: env
     });
 
     // Logs da API

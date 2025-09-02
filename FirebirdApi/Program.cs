@@ -61,6 +61,13 @@ builder.Services.AddCors(options =>
 // Registrar HttpClient
 builder.Services.AddHttpClient();
 
+// Registrar HttpClient nomeado para o servidor cloud
+builder.Services.AddHttpClient("CloudServer", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("User-Agent", "FirebirdApi-Client/1.0");
+});
+
 // Registrar o serviço de configuração de bases de dados
 builder.Services.AddSingleton<IDatabaseConfigService, DatabaseConfigService>();
 
@@ -73,19 +80,19 @@ builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 // Registrar o serviço MachineId
 builder.Services.AddSingleton<IMachineIdService, MachineIdService>();
 
-// Registrar o serviço de autenticação
-builder.Services.AddScoped<IAuthService, AuthService>();
-
 // Registrar o serviço de armazenamento de tokens
 builder.Services.AddSingleton<ITokenStorageService, TokenStorageService>();
+
+// Registrar IHttpContextAccessor para o AuthService (deve vir antes do AuthService)
+builder.Services.AddHttpContextAccessor();
+
+// Registrar o serviço de autenticação (deve vir depois dos HttpClients e IHttpContextAccessor)
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Registrar o serviço de streaming de comandos como HostedService
 builder.Services.AddSingleton<ICommandStreamService, CommandStreamService>();
 builder.Services.AddHostedService<CommandStreamService>(provider => 
     (CommandStreamService)provider.GetRequiredService<ICommandStreamService>());
-
-// Registrar IHttpContextAccessor para o AuthService
-builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 

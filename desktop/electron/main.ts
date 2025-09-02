@@ -215,12 +215,13 @@ ipcMain.handle('auth:register', async (_event, _userData: { name: string; email:
       body: JSON.stringify(_userData)
     })
     
+    const result = await response.json()
+    
     if (!response.ok) {
-      const errorData = await response.json() as { message?: string }
+      const errorData = result as { message?: string }
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
     }
     
-    const result = await response.json()
     return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -238,12 +239,13 @@ ipcMain.handle('auth:login', async (_event, credentials: { email: string; passwo
       body: JSON.stringify(credentials)
     })
     
+    const result = await response.json()
+    
     if (!response.ok) {
-      const errorData = await response.json() as { message?: string }
+      const errorData = result as { message?: string }
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
     }
     
-    const result = await response.json()
     return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
