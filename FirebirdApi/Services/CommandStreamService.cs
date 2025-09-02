@@ -126,8 +126,7 @@ namespace FirebirdApi.Services
                 }
 
                 var httpClient = new HttpClient(httpHandler);
-                var timeout = _configuration.GetValue<int>("CloudServer:Timeout", 30);
-                httpClient.Timeout = TimeSpan.FromSeconds(timeout);
+                httpClient.Timeout = Timeout.InfiniteTimeSpan;
 
                 var channelOptions = new GrpcChannelOptions
                 {
