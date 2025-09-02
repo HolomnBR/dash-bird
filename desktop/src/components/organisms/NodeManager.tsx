@@ -46,6 +46,7 @@ export function NodeManager() {
   const [connectedNodeId, setConnectedNodeId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const [checkingConnection, setCheckingConnection] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<{ isRunning: boolean; status?: ApiResult['status'] } | null>(null)
 
@@ -53,6 +54,20 @@ export function NodeManager() {
     loadNodeConfig()
     checkApiStatus()
   }, [])
+
+  // Verificar localStorage quando nodeConfig for carregado
+  useEffect(() => {
+    if (nodeConfig && isAuthenticated && token) {
+      const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
+      const connectedNode = connectedNodes.find((node: ConnectedNode) => node.machineId === nodeConfig.machineId)
+      
+      if (connectedNode) {
+        console.log('✅ Nó encontrado no localStorage como conectado:', connectedNode)
+        setIsNodeConnected(true)
+        setConnectedNodeId(connectedNode.nodeId)
+      }
+    }
+  }, [nodeConfig, isAuthenticated, token])
 
   const checkApiStatus = async () => {
     try {
@@ -86,6 +101,12 @@ export function NodeManager() {
     if (!nodeConfig || !token) return
 
     try {
+      // Se for verificação forçada (botão clicado), mostrar loading
+      if (forceServerCheck) {
+        setCheckingConnection(true)
+        setError(null)
+      }
+
       // Se não for verificação forçada, verificar primeiro no localStorage
       if (!forceServerCheck) {
         const connectedNodes: ConnectedNode[] = JSON.parse(localStorage.getItem('connected_nodes') || '[]')
@@ -149,51 +170,61 @@ export function NodeManager() {
         }
       } else {
         console.error('❌ Erro na verificação de conexão:', result.error)
+        if (forceServerCheck) {
+          setError(result.error || 'Erro ao verificar conexão')
+        }
       }
     } catch (error) {
       console.error('Erro ao verificar conexão do nó:', error)
+      if (forceServerCheck) {
+        setError('Erro de conexão com o servidor')
+      }
+    } finally {
+      if (forceServerCheck) {
+        setCheckingConnection(false)
+      }
     }
   }, [nodeConfig, token, isNodeConnected])
 
-  // Verificação inicial quando o componente é montado
-  useEffect(() => {
-    if (nodeConfig && isAuthenticated && token) {
-      console.log('🔄 Verificação inicial de conexão do nó...')
-      checkNodeConnection(true) // Forçar verificação no servidor
-    }
-  }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
+  // Verificação inicial quando o componente é montado - REMOVIDO para evitar desvinculação automática
+  // useEffect(() => {
+  //   if (nodeConfig && isAuthenticated && token) {
+  //     console.log('🔄 Verificação inicial de conexão do nó...')
+  //     checkNodeConnection(true) // Forçar verificação no servidor
+  //   }
+  // }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
 
-  // Verificação periódica a cada 30 segundos
-  useEffect(() => {
-    if (!nodeConfig || !isAuthenticated || !token) return
+  // Verificação periódica a cada 30 segundos - REMOVIDO para evitar desvinculação automática
+  // useEffect(() => {
+  //   if (!nodeConfig || !isAuthenticated || !token) return
 
-    console.log('⏰ Iniciando verificação periódica de conexão...')
-    const interval = setInterval(() => {
-      console.log('🔄 Verificação periódica de conexão do nó...')
-      checkNodeConnection(true) // Forçar verificação no servidor
-    }, 30000) // 30 segundos
+  //   console.log('⏰ Iniciando verificação periódica de conexão...')
+  //   const interval = setInterval(() => {
+  //     console.log('🔄 Verificação periódica de conexão do nó...')
+  //     checkNodeConnection(true) // Forçar verificação no servidor
+  //   }, 30000) // 30 segundos
 
-    return () => {
-      console.log('⏹️ Parando verificação periódica de conexão...')
-      clearInterval(interval)
-    }
-  }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
+  //   return () => {
+  //     console.log('⏹️ Parando verificação periódica de conexão...')
+  //     clearInterval(interval)
+  //   }
+  // }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
 
-  // Verificação quando a janela ganha foco
-  useEffect(() => {
-    if (!nodeConfig || !isAuthenticated || !token) return
+  // Verificação quando a janela ganha foco - REMOVIDO para evitar desvinculação automática
+  // useEffect(() => {
+  //   if (!nodeConfig || !isAuthenticated || !token) return
 
-    const handleFocus = () => {
-      console.log('👁️ Janela ganhou foco, verificando conexão do nó...')
-      checkNodeConnection(true) // Forçar verificação no servidor
-    }
+  //   const handleFocus = () => {
+  //     console.log('👁️ Janela ganhou foco, verificando conexão do nó...')
+  //     checkNodeConnection(true) // Forçar verificação no servidor
+  //   }
 
-    window.addEventListener('focus', handleFocus)
+  //   window.addEventListener('focus', handleFocus)
     
-    return () => {
-      window.removeEventListener('focus', handleFocus)
-    }
-  }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
+  //   return () => {
+  //     window.removeEventListener('focus', handleFocus)
+  //   }
+  // }, [nodeConfig, isAuthenticated, token, checkNodeConnection])
 
   // Limpar estado do nó quando usuário faz logout
   useEffect(() => {
@@ -206,16 +237,24 @@ export function NodeManager() {
   }, [isAuthenticated])
 
   const handleConnectNode = async () => {
-    if (!nodeConfig || !token) return
+    console.log('🔗 handleConnectNode chamado', { nodeConfig, token, isAuthenticated })
+    
+    if (!nodeConfig || !token) {
+      console.log('❌ Falta nodeConfig ou token:', { nodeConfig: !!nodeConfig, token: !!token })
+      return
+    }
 
     try {
       setActionLoading(true)
       setError(null)
       
+      console.log('📡 Chamando bindCurrentNode com:', { token, machineId: nodeConfig.machineId })
       const result = await bindCurrentNode({
         token,
         machineId: nodeConfig.machineId
       })
+      
+      console.log('📡 Resultado do bindCurrentNode:', result)
       
       if (result.success) {
         // Salvar no localStorage que o nó está conectado
@@ -224,7 +263,7 @@ export function NodeManager() {
         
         const nodeData = { 
           machineId: nodeConfig.machineId, 
-          nodeId: result.data?.nodeId || nodeConfig.nodeId 
+          nodeId: result.data.nodeId || nodeConfig.nodeId 
         }
         
         if (existingIndex >= 0) {
@@ -364,10 +403,19 @@ export function NodeManager() {
         <div className="flex justify-center">
           <button
             onClick={() => checkNodeConnection(true)}
-            disabled={loading}
-            className="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={checkingConnection}
+            className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {loading ? 'Verificando...' : '🔄 Verificar Conexão'}
+            {checkingConnection ? (
+              <>
+                <div className="w-3 h-3 border-2 border-blue-700 border-t-transparent rounded-full animate-spin"></div>
+                Verificando...
+              </>
+            ) : (
+              <>
+                🔄 Verificar Conexão
+              </>
+            )}
           </button>
         </div>
 
@@ -426,7 +474,10 @@ export function NodeManager() {
             )}
             
             <Button
-              onClick={handleConnectNode}
+              onClick={() => {
+                console.log('🖱️ Botão clicado!')
+                handleConnectNode()
+              }}
               disabled={actionLoading || (apiStatus ? !apiStatus.isRunning : false)}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-400"
             >

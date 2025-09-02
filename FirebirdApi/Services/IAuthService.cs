@@ -16,6 +16,8 @@ namespace FirebirdApi.Services
         Task<BindNodeToUserResponse> BindCurrentNodeToUserAsync(string machineId, string userId);
         Task<UnbindNodeFromUserResponse> UnbindNodeFromUserAsync(string nodeId, string userId);
         Task<List<object>> GetUserNodesAsync(string userId);
+        Task<object> CheckNodeConnectionAsync(string token, string machineId);
+        Task<List<object>> GetUserTokensAsync(string userId);
         Task<bool> ValidateAnonymousTokenAsync(string anonymousToken);
     }
 }

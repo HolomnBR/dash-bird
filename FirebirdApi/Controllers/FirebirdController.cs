@@ -11,7 +11,7 @@ namespace FirebirdApi.Controllers
     public class FirebirdController : ControllerBase
     {
         private readonly IFirebirdService _firebirdService;
-    //teste
+
         public FirebirdController(IFirebirdService firebirdService)
         {
             _firebirdService = firebirdService;
@@ -23,7 +23,6 @@ namespace FirebirdApi.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> TestConnection([FromQuery] string? databaseId = null)
         {
-            var teste = "teste";
             try
             {
                 var isConnected = await _firebirdService.TestConnectionAsync(databaseId);

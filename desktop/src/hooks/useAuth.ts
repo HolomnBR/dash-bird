@@ -213,21 +213,50 @@ export const useAuth = () => {
 
   const checkNodeConnection = useCallback(async (data: { token: string; machineId: string }) => {
     try {
+      console.log('🔍 Verificando conexão do nó na API LOCAL...')
+      
+      // Chamar a API LOCAL
       const result = await window.auth.checkNodeConnection(data)
+      console.log('📡 Resultado da API LOCAL:', result)
+      
       return result
     } catch (error) {
       console.error('Erro ao verificar conexão do nó:', error)
-      return { success: false, error: 'Erro de conexão' }
+      return { success: false, error: 'Erro ao verificar conexão do nó' }
     }
   }, [])
 
   const bindCurrentNode = useCallback(async (data: { token: string; machineId: string }) => {
     try {
-      const result = await window.auth.bindCurrentNode(data)
-      return result
+      console.log('🚀 Iniciando bindCurrentNode com:', { token: data.token?.substring(0, 20) + '...', machineId: data.machineId })
+      
+      // Chamar a API local que vai comunicar com o servidor cloud
+      const response = await fetch('http://localhost:8000/api/Auth/bind-current-node', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${data.token}`
+        },
+        body: JSON.stringify({
+          machineId: data.machineId
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      console.log('🔍 Resposta da API bind-current-node:', result)
+      
+      return {
+        success: result.success || false,
+        data: result,
+        error: result.success ? undefined : (result.message || `Erro da API: ${JSON.stringify(result)}`)
+      }
     } catch (error) {
       console.error('Erro ao conectar nó atual:', error)
-      return { success: false, error: 'Erro de conexão' }
+      return { success: false, error: 'Erro de conexão com a API local' }
     }
   }, [])
 

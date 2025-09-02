@@ -369,6 +369,72 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Verifica se um nó específico está conectado à conta do usuário
+        /// </summary>
+        /// <param name="machineId">ID da máquina para verificar</param>
+        /// <returns>Status de conexão do nó e lista de tokens do usuário</returns>
+        [HttpGet("check-node-connection/{machineId}")]
+        [ProducesResponseType(typeof(object), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 401)]
+        [ProducesResponseType(typeof(ProblemDetails), 500)]
+        public async Task<IActionResult> CheckNodeConnection(string machineId)
+        {
+            try
+            {
+                var token = GetTokenFromHeader();
+                if (string.IsNullOrEmpty(token))
+                {
+                    return Unauthorized(new { message = "Token de autenticação não fornecido" });
+                }
+
+                var userId = await _authService.GetUserIdFromTokenAsync(token);
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return Unauthorized(new { message = "Token inválido" });
+                }
+
+                // Obter lista de tokens do usuário
+                var userTokens = await _authService.GetUserTokensAsync(userId);
+
+                // Verificar conexão do nó (tentar com servidor cloud, mas não falhar se não disponível)
+                object connectionResult;
+                try
+                {
+                    connectionResult = await _authService.CheckNodeConnectionAsync(token, machineId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Servidor cloud não disponível, usando verificação local: {Error}", ex.Message);
+                    connectionResult = new
+                    {
+                        success = true,
+                        isConnected = false,
+                        wasUnbound = false,
+                        node = (object?)null,
+                        error = "Servidor cloud não disponível"
+                    };
+                }
+
+                var result = new
+                {
+                    success = true,
+                    isConnected = false,
+                    wasUnbound = false,
+                    node = (object?)null,
+                    userTokens = userTokens,
+                    connectionResult = connectionResult
+                };
+                
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao verificar conexão do nó {MachineId}", machineId);
+                return StatusCode(500, new { message = "Erro interno do servidor" });
+            }
+        }
+
+        /// <summary>
         /// Desvincula um nó do usuário autenticado
         /// </summary>
         /// <param name="request">ID do nó para desvincular</param>

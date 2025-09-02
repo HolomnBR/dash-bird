@@ -32,7 +32,9 @@ try {
   app.commandLine.appendSwitch('disable-http-cache', '1')
   app.commandLine.appendSwitch('disable-gpu-shader-disk-cache', '1')
   app.commandLine.appendSwitch('disable-gpu-program-cache', '1')
-} catch {}
+} catch {
+  // Ignore errors during path setup
+}
 
 if (shouldDisableGpu) {
   app.disableHardwareAcceleration()
@@ -202,11 +204,24 @@ ipcMain.handle('api:restart', async () => {
 })
 
 // Auth handlers
-ipcMain.handle('auth:register', async (_event, userData: { name: string; email: string; password: string }) => {
+ipcMain.handle('auth:register', async (_event, _userData: { name: string; email: string; password: string }) => {
   try {
-    // Aqui você implementaria a lógica de registro
-    // Por enquanto, retorna sucesso simulado
-    return { success: true, data: { message: 'Registro realizado com sucesso' } }
+    // Fazer requisição para a API local que vai comunicar com o servidor cloud
+    const response = await fetch('http://localhost:8000/api/Auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(_userData)
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json() as { message?: string }
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
@@ -214,54 +229,131 @@ ipcMain.handle('auth:register', async (_event, userData: { name: string; email: 
 
 ipcMain.handle('auth:login', async (_event, credentials: { email: string; password: string }) => {
   try {
-    // Aqui você implementaria a lógica de login
-    // Por enquanto, retorna sucesso simulado
-    return { success: true, data: { token: 'fake-token', user: { email: credentials.email, name: 'Usuário' } } }
+    // Fazer requisição para a API local que vai comunicar com o servidor cloud
+    const response = await fetch('http://localhost:8000/api/Auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(credentials)
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json() as { message?: string }
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:logout', async (_event, token: string) => {
+ipcMain.handle('auth:logout', async (_event, _token: string) => {
   try {
-    // Aqui você implementaria a lógica de logout
-    return { success: true }
+    // Fazer requisição para a API local
+    const response = await fetch('http://localhost:8000/api/Auth/logout', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${_token}`
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:getProfile', async (_event, token: string) => {
+ipcMain.handle('auth:getProfile', async (_event, _token: string) => {
   try {
-    // Aqui você implementaria a lógica de obter perfil
-    return { success: true, data: { email: 'user@example.com', name: 'Usuário' } }
+    // Fazer requisição para a API local
+    const response = await fetch('http://localhost:8000/api/Auth/profile', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${_token}`
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:validateToken', async (_event, token: string) => {
+ipcMain.handle('auth:validateToken', async (_event, _token: string) => {
   try {
-    // Aqui você implementaria a validação do token
-    return { success: true, valid: true }
+    // Fazer requisição para a API local
+    const response = await fetch('http://localhost:8000/api/Auth/validate-token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${_token}`
+      }
+    })
+    
+    if (!response.ok) {
+      return { success: true, valid: false }
+    }
+    
+    const result = await response.json() as { valid?: boolean }
+    return { success: true, valid: result.valid || false }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:bindNode', async (_event, data: { token: string; anonymousToken: string }) => {
+ipcMain.handle('auth:bindNode', async (_event, _data: { token: string; anonymousToken: string }) => {
   try {
-    // Aqui você implementaria a lógica de vincular nó
-    return { success: true, data: { message: 'Nó vinculado com sucesso' } }
+    // Fazer requisição para a API local que vai comunicar com o servidor cloud
+    const response = await fetch('http://localhost:8000/api/Auth/bind-node', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${_data.token}`
+      },
+      body: JSON.stringify({
+        anonymousToken: _data.anonymousToken
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:getUserNodes', async (_event, token: string) => {
+ipcMain.handle('auth:getUserNodes', async (_event, _token: string) => {
   try {
-    // Aqui você implementaria a lógica de obter nós do usuário
-    return { success: true, data: [] }
+    // Fazer requisição para a API local
+    const response = await fetch('http://localhost:8000/api/Auth/nodes', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${_token}`
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
@@ -276,28 +368,72 @@ ipcMain.handle('auth:getAvailableNodes', async () => {
   }
 })
 
-ipcMain.handle('auth:checkNodeConnection', async (_event, data: { token: string; machineId: string }) => {
+ipcMain.handle('auth:checkNodeConnection', async (_event, _data: { token: string; machineId: string }) => {
   try {
-    // Aqui você implementaria a verificação de conexão do nó
-    return { success: true, isConnected: false, wasUnbound: false }
+    // Fazer requisição para a API local que vai verificar no servidor cloud
+    const response = await fetch(`http://localhost:8000/api/Auth/check-node-connection/${_data.machineId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${_data.token}`
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json() as Record<string, unknown>
+    return { success: true, ...result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:bindCurrentNode', async (_event, data: { token: string; machineId: string }) => {
+ipcMain.handle('auth:bindCurrentNode', async (_event, _data: { token: string; machineId: string }) => {
   try {
-    // Aqui você implementaria a lógica de vincular nó atual
-    return { success: true, data: { message: 'Nó atual vinculado com sucesso' } }
+    // Fazer requisição para a API local que vai comunicar com o servidor cloud
+    const response = await fetch('http://localhost:8000/api/Auth/bind-current-node', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${_data.token}`
+      },
+      body: JSON.stringify({
+        machineId: _data.machineId
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('auth:unbindNode', async (_event, data: { token: string; nodeId: string }) => {
+ipcMain.handle('auth:unbindNode', async (_event, _data: { token: string; nodeId: string }) => {
   try {
-    // Aqui você implementaria a lógica de desvincular nó
-    return { success: true, data: { message: 'Nó desvinculado com sucesso' } }
+    // Fazer requisição para a API local que vai comunicar com o servidor cloud
+    const response = await fetch('http://localhost:8000/api/Auth/unbind-node', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${_data.token}`
+      },
+      body: JSON.stringify({
+        nodeId: _data.nodeId
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    return { success: true, data: result }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }

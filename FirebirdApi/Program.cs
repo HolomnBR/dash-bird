@@ -70,6 +70,15 @@ builder.Services.AddScoped<IFirebirdService, FirebirdService>();
 // Registrar o serviço gRPC Client
 builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 
+// Registrar o serviço MachineId
+builder.Services.AddScoped<IMachineIdService, MachineIdService>();
+
+// Registrar o serviço de autenticação
+builder.Services.AddScoped<IAuthService, AuthService>();
+
+// Registrar IHttpContextAccessor para o AuthService
+builder.Services.AddHttpContextAccessor();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

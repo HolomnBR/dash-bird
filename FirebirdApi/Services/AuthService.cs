@@ -21,13 +21,13 @@ namespace FirebirdApi.Services
         public AuthService(
             IConfiguration configuration, 
             ILogger<AuthService> logger, 
-            HttpClient httpClient,
+            IHttpClientFactory httpClientFactory,
             IMachineIdService machineIdService,
             IHttpContextAccessor httpContextAccessor)
         {
             _configuration = configuration;
             _logger = logger;
-            _httpClient = httpClient;
+            _httpClient = httpClientFactory.CreateClient("CloudServer");
             _machineIdService = machineIdService;
             _httpContextAccessor = httpContextAccessor;
             _cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
@@ -526,6 +526,92 @@ namespace FirebirdApi.Services
             {
                 _logger.LogError(ex, "Erro ao validar token anônimo: {Token}", anonymousToken);
                 return false;
+            }
+        }
+
+        public async Task<object> CheckNodeConnectionAsync(string token, string machineId)
+        {
+            try
+            {
+                _logger.LogInformation("Verificando conexão do nó: {MachineId}", machineId);
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_cloudServerUrl}/api/User/check-node-connection/{machineId}");
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao verificar conexão do nó: {StatusCode} - {Error}", 
+                        response.StatusCode, errorContent);
+                    
+                    return new
+                    {
+                        success = true,
+                        isConnected = false,
+                        wasUnbound = false,
+                        node = (object?)null,
+                        error = $"Servidor cloud retornou: {response.StatusCode}"
+                    };
+                }
+
+                var result = await response.Content.ReadFromJsonAsync<object>();
+                return result ?? new
+                {
+                    success = true,
+                    isConnected = false,
+                    wasUnbound = false,
+                    node = (object?)null
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Erro ao verificar conexão do nó: {MachineId} - {Error}", machineId, ex.Message);
+                return new
+                {
+                    success = true,
+                    isConnected = false,
+                    wasUnbound = false,
+                    node = (object?)null,
+                    error = "Erro de conexão com servidor cloud"
+                };
+            }
+        }
+
+        public async Task<List<object>> GetUserTokensAsync(string userId)
+        {
+            try
+            {
+                _logger.LogInformation("Obtendo tokens do usuário: {UserId}", userId);
+
+                var token = GetTokenFromContext();
+                if (string.IsNullOrEmpty(token))
+                {
+                    _logger.LogError("Token não encontrado no contexto HTTP");
+                    return new List<object>();
+                }
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_cloudServerUrl}/api/User/tokens");
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao obter tokens do usuário: {StatusCode} - {Error}", 
+                        response.StatusCode, errorContent);
+                    return new List<object>();
+                }
+
+                var result = await response.Content.ReadFromJsonAsync<List<object>>();
+                return result ?? new List<object>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Erro ao obter tokens do usuário: {UserId} - {Error}", userId, ex.Message);
+                return new List<object>();
             }
         }
 
