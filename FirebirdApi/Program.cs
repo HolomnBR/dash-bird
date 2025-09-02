@@ -76,6 +76,14 @@ builder.Services.AddScoped<IMachineIdService, MachineIdService>();
 // Registrar o serviço de autenticação
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+// Registrar o serviço de armazenamento de tokens
+builder.Services.AddSingleton<ITokenStorageService, TokenStorageService>();
+
+// Registrar o serviço de streaming de comandos como HostedService
+builder.Services.AddSingleton<ICommandStreamService, CommandStreamService>();
+builder.Services.AddHostedService<CommandStreamService>(provider => 
+    (CommandStreamService)provider.GetRequiredService<ICommandStreamService>());
+
 // Registrar IHttpContextAccessor para o AuthService
 builder.Services.AddHttpContextAccessor();
 

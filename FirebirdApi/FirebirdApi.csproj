@@ -34,6 +34,7 @@
   <!-- Configuração para gerar código gRPC -->
   <ItemGroup>
     <Protobuf Include="Protos\dashbird_service.proto" GrpcServices="Client" />
+    <Protobuf Include="Protos\command.proto" GrpcServices="Client" />
   </ItemGroup>
 
   <!-- Garantir que assemblies do Swagger sejam preservados -->

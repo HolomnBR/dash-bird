@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option csharp_namespace = "FirebirdApi.Protos";
+
+package command;
+
+// O serviço principal que gerencia o stream de comunicação
+service CommandService {
+  // O método de streaming bidirecional
+  rpc CommandStream(stream ClientToServerMessage) returns (stream ServerToClientMessage);
+}
+
+// Mensagem enviada do Cliente para o Servidor
+message ClientToServerMessage {
+  // 'oneof' garante que apenas um destes campos pode ser definido por mensagem.
+  // Isso nos ajuda a saber qual o tipo de mensagem que o cliente está enviando.
+  oneof payload {
+    string connection_id = 1; // Usado para a primeira mensagem de registro
+    string json_response = 2; // Usado para responder aos comandos do servidor
+  }
+}
+
+// Mensagem enviada do Servidor para o Cliente
+message ServerToClientMessage {
+  string command_text = 1; // O comando que o cliente deve executar
+  string command_id = 2;   // ID único do comando para rastreamento
+  string metadata = 3;     // Metadados adicionais (JSON)
+}

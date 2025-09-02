@@ -1,0 +1,38 @@
+### Teste de Streaming - Firebird API
+
+### 1. Status do streaming
+GET http://localhost:8000/api/Streaming/status
+
+### 2. Iniciar streaming
+POST http://localhost:8000/api/Streaming/start
+Content-Type: application/json
+
+{
+  "connectionId": "desktop-cliente-01",
+  "machineId": "DESKTOP-ABC123",
+  "authToken": "seu-jwt-token-aqui"
+}
+
+### 3. Parar streaming
+POST http://localhost:8000/api/Streaming/stop
+
+### 4. Reiniciar streaming
+POST http://localhost:8000/api/Streaming/restart
+Content-Type: application/json
+
+{
+  "connectionId": "desktop-cliente-02",
+  "machineId": "DESKTOP-ABC123",
+  "authToken": "seu-jwt-token-aqui"
+}
+
+### 5. Status da API
+GET http://localhost:8000/health
+
+### 6. Teste de conexão gRPC
+GET http://localhost:8000/health/grpc
+
+### Comandos que o cliente pode processar:
+# GET_SYSTEM_INFO - Retorna informações do sistema
+# GET_DATABASE_STATUS - Retorna status do banco de dados
+# PING - Retorna pong com timestamp

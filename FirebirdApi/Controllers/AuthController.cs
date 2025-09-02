@@ -10,11 +10,13 @@ namespace FirebirdApi.Controllers
     {
         private readonly IAuthService _authService;
         private readonly ILogger<AuthController> _logger;
+        private readonly ITokenStorageService _tokenStorageService;
 
-        public AuthController(IAuthService authService, ILogger<AuthController> logger)
+        public AuthController(IAuthService authService, ILogger<AuthController> logger, ITokenStorageService tokenStorageService)
         {
             _authService = authService;
             _logger = logger;
+            _tokenStorageService = tokenStorageService;
         }
 
         /// <summary>
@@ -36,6 +38,14 @@ namespace FirebirdApi.Controllers
                 }
 
                 var result = await _authService.RegisterAsync(request);
+                
+                // Armazenar o token localmente para uso do CommandStreamService
+                if (!string.IsNullOrEmpty(result.Token))
+                {
+                    await _tokenStorageService.StoreTokenAsync(result.Token);
+                    _logger.LogInformation("Token armazenado localmente após registro do usuário: {Email}", request.Email);
+                }
+                
                 return Ok(result);
             }
             catch (InvalidOperationException ex)
@@ -70,6 +80,14 @@ namespace FirebirdApi.Controllers
                 }
 
                 var result = await _authService.LoginAsync(request);
+                
+                // Armazenar o token localmente para uso do CommandStreamService
+                if (!string.IsNullOrEmpty(result.Token))
+                {
+                    await _tokenStorageService.StoreTokenAsync(result.Token);
+                    _logger.LogInformation("Token armazenado localmente após login do usuário: {Email}", request.Email);
+                }
+                
                 return Ok(result);
             }
             catch (UnauthorizedAccessException ex)
@@ -511,6 +529,9 @@ namespace FirebirdApi.Controllers
                 }
 
                 _logger.LogInformation("Logout realizado para usuário: {UserId}", userId);
+
+                // Limpar token armazenado localmente
+                await _tokenStorageService.ClearTokenAsync();
 
                 return Ok(new { 
                     message = "Logout realizado com sucesso"
