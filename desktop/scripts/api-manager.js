@@ -7,7 +7,16 @@ class ApiManager {
   constructor(app) {
     this.app = app;
     this.apiProcess = null;
-    this.apiPort = 5000; // Porta padrão da API
+    this.apiPort = 8000; // Porta padrão da API
+    
+    // Em desenvolvimento, usa o caminho local
+    // Em produção, usa o caminho dos recursos do Electron
+    if (process.env.NODE_ENV === 'development' || !process.resourcesPath) {
+      this.apiExePath = path.join(__dirname, '../api-dist/FirebirdApi.exe');
+    } else {
+      this.apiExePath = path.join(process.resourcesPath, 'api-dist/FirebirdApi.exe');
+    }
+    
     this.isRunning = false;
     this.apiExePath = null; // Será inicializado pelo método init()
   }

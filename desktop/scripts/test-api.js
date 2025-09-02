@@ -6,7 +6,7 @@ const testApi = () => {
   return new Promise((resolve) => {
     const req = http.request({
       hostname: 'localhost',
-      port: 5000,
+      port: 8000,
       path: '/health',
       method: 'GET',
       timeout: 5000

@@ -41,21 +41,23 @@ export function Home() {
     <main className="mx-auto max-w-3xl">
       <Header
         leftSlot={
-          <div className="flex items-center gap-2">
-            <Link to="/dashboard" aria-label="Dashboard Estratégico" title="Dashboard Estratégico">
-              <BarChart3 size={18} className="opacity-80 hover:opacity-100" />
-            </Link>
-            <Link to="/settings" aria-label="Configurações" title="Configurações">
-              <SettingsIcon size={18} className="opacity-80 hover:opacity-100" />
-            </Link>
-          </div>
+          <Link to="/dashboard" aria-label="Dashboard Estratégico" title="Dashboard Estratégico">
+            <BarChart3 size={18} className="opacity-80 hover:opacity-100" />
+          </Link>
         }
         title={alias ? `${deviceName} (${alias})` : (deviceName || 'Carregando...')}
         subtitle={machineId || ''}
       />
       <div className="p-6">
-        <div className="mb-4 rounded border border-gray-700/50 p-3">
-          <div className="mb-2 text-xs opacity-70">Configuração deste nó</div>
+        <Link 
+          to="/settings" 
+          className="mb-4 block rounded border border-gray-700/50 p-3 hover:border-gray-600/50 hover:bg-gray-50/5 transition-colors cursor-pointer"
+          aria-label="Configurações do nó"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs opacity-70">Configuração deste nó</div>
+            <SettingsIcon size={16} className="opacity-60 hover:opacity-100 transition-opacity" />
+          </div>
           <div className="text-xs space-y-1">
             <div>
               <span className="opacity-70">Nome:</span> {alias ? `${deviceName} (${alias})` : (deviceName || 'Carregando...')}
@@ -69,7 +71,7 @@ export function Home() {
               <span title={nodeId}>{nodeId ? `${nodeId.slice(0, 8)}...${nodeId.slice(-6)}` : 'Carregando...'}</span>
             </div>
           </div>
-        </div>
+        </Link>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm opacity-70">Bases configuradas</h2>
           <Link to="/databases/new" aria-label="Nova base" title="Nova base" className="opacity-80 hover:opacity-100">

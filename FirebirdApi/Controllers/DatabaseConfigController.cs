@@ -12,10 +12,23 @@ namespace FirebirdApi.Controllers
     public class DatabaseConfigController : ControllerBase
     {
         private readonly IDatabaseConfigService _configService;
+        private readonly HttpClient _httpClient;
+        private readonly IConfiguration _configuration;
+        private readonly ILogger<DatabaseConfigController> _logger;
+        private readonly IMachineIdService _machineIdService;
 
-        public DatabaseConfigController(IDatabaseConfigService configService)
+        public DatabaseConfigController(
+            IDatabaseConfigService configService,
+            HttpClient httpClient,
+            IConfiguration configuration,
+            ILogger<DatabaseConfigController> logger,
+            IMachineIdService machineIdService)
         {
             _configService = configService;
+            _httpClient = httpClient;
+            _configuration = configuration;
+            _logger = logger;
+            _machineIdService = machineIdService;
         }
 
         /// <summary>
@@ -85,6 +98,10 @@ namespace FirebirdApi.Controllers
                 };
 
                 var addedDatabase = await _configService.AddDatabaseAsync(config);
+                
+                // Enviar automaticamente para o cloud se configurado
+                await SendDatabaseToCloudAsync(addedDatabase);
+                
                 return Ok(new { success = true, data = addedDatabase, message = "Base de dados adicionada com sucesso" });
             }
             catch (Exception ex)
@@ -413,6 +430,185 @@ namespace FirebirdApi.Controllers
             {
                 return BadRequest(new { success = false, message = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Envia uma database local para o servidor cloud
+        /// </summary>
+        private async Task SendDatabaseToCloudAsync(DatabaseConfig databaseConfig)
+        {
+            try
+            {
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var machineId = GetMachineId(); // Obter o MachineId correto
+
+                // Primeiro, verificar se o servidor cloud está disponível
+                try
+                {
+                    var healthCheck = await _httpClient.GetAsync($"{cloudServerUrl}/status");
+                    if (!healthCheck.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Servidor cloud não está disponível. Pulando envio da database: {DatabaseName}", databaseConfig.Name);
+                        return;
+                    }
+                }
+                catch
+                {
+                    _logger.LogWarning("Não foi possível conectar ao servidor cloud. Pulando envio da database: {DatabaseName}", databaseConfig.Name);
+                    return;
+                }
+
+                var request = new
+                {
+                    DesktopNodeId = machineId,
+                    Name = databaseConfig.Name,
+                    Server = databaseConfig.Server,
+                    Database = databaseConfig.Database,
+                    User = databaseConfig.Username,
+                    Password = databaseConfig.Password,
+                    Port = databaseConfig.Port,
+                    Charset = databaseConfig.Charset
+                };
+
+                _logger.LogInformation("Enviando database para o cloud: {DatabaseName} -> {CloudUrl}", databaseConfig.Name, cloudServerUrl);
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{cloudServerUrl}/api/DatabaseConfig/register-database", 
+                    request
+                );
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<object>();
+                    _logger.LogInformation("Database enviada para o cloud com sucesso: {DatabaseName}", databaseConfig.Name);
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao enviar database para o cloud: {StatusCode} - {Error}", 
+                        response.StatusCode, errorContent);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning("Erro de conexão ao enviar database para o cloud: {DatabaseName} - {Error}", 
+                    databaseConfig.Name, ex.Message);
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogWarning("Timeout ao enviar database para o cloud: {DatabaseName} - {Error}", 
+                    databaseConfig.Name, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro inesperado ao enviar database para o cloud: {DatabaseName}", databaseConfig.Name);
+            }
+        }
+
+        /// <summary>
+        /// Testa a conectividade com o servidor cloud
+        /// </summary>
+        [HttpGet("test-cloud-connection")]
+        [SwaggerOperation(
+            Summary = "Testar conexão com servidor cloud",
+            Description = "Verifica se o servidor cloud está disponível e acessível."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> TestCloudConnection()
+        {
+            try
+            {
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                
+                var response = await _httpClient.GetAsync($"{cloudServerUrl}/status");
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    return Ok(new { 
+                        success = true, 
+                        message = "Conexão com servidor cloud estabelecida com sucesso",
+                        cloudUrl = cloudServerUrl,
+                        response = content
+                    });
+                }
+                else
+                {
+                    return BadRequest(new { 
+                        success = false, 
+                        message = $"Servidor cloud retornou status: {response.StatusCode}",
+                        cloudUrl = cloudServerUrl
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { 
+                    success = false, 
+                    message = $"Erro ao conectar com servidor cloud: {ex.Message}",
+                    cloudUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sincroniza todas as databases locais com o servidor cloud
+        /// </summary>
+        [HttpPost("sync-all-databases")]
+        [SwaggerOperation(
+            Summary = "Sincronizar todas as databases com o cloud",
+            Description = "Envia todas as databases locais para o servidor cloud."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> SyncAllDatabases()
+        {
+            try
+            {
+                var databases = await _configService.GetAllDatabasesAsync();
+                var results = new List<object>();
+
+                foreach (var database in databases)
+                {
+                    try
+                    {
+                        await SendDatabaseToCloudAsync(database);
+                        results.Add(new { 
+                            databaseId = database.Id, 
+                            name = database.Name, 
+                            status = "success" 
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        results.Add(new { 
+                            databaseId = database.Id, 
+                            name = database.Name, 
+                            status = "error", 
+                            error = ex.Message 
+                        });
+                    }
+                }
+
+                return Ok(new { 
+                    success = true, 
+                    data = results, 
+                    message = $"Sincronização concluída. {results.Count(r => r.GetType().GetProperty("status")?.GetValue(r)?.ToString() == "success")} databases processadas." 
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Obtém o MachineId correto para comunicação com o cloud
+        /// </summary>
+        private string GetMachineId()
+        {
+            return _machineIdService.GetMachineId();
         }
     }
 

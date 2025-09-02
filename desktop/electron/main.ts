@@ -32,7 +32,9 @@ try {
   app.commandLine.appendSwitch('disable-http-cache', '1')
   app.commandLine.appendSwitch('disable-gpu-shader-disk-cache', '1')
   app.commandLine.appendSwitch('disable-gpu-program-cache', '1')
-} catch {}
+} catch (error) {
+  console.error('Erro ao configurar paths:', error)
+}
 
 if (shouldDisableGpu) {
   app.disableHardwareAcceleration()
@@ -114,6 +116,66 @@ function getOrCreateNodeConfig(): NodeConfig {
   return (changed ? (store.set('nodeConfig', cfg), cfg) : cfg) as NodeConfig
 }
 
+// Função para registrar nó anônimo via API local (que por sua vez registra no servidor cloud)
+async function registerAnonymousNodeInCloud(nodeConfig: NodeConfig) {
+  try {
+    const localApiUrl = 'http://localhost:5001' // API local
+    const registrationData = {
+      name: `${nodeConfig.machineName}${nodeConfig.alias ? ` (${nodeConfig.alias})` : ''}`,
+      machineId: nodeConfig.machineId,
+      ipAddress: '127.0.0.1', // IP local
+      port: 8000, // Porta da API local
+      databasePath: null, // Será preenchido quando configurar DB
+      version: '1.0.0',
+      operatingSystem: process.platform
+    }
+
+    console.log('🌐 Registrando nó anônimo via API local:', registrationData.name)
+    
+    const response = await fetch(`${localApiUrl}/api/AnonymousNode/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(registrationData)
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Nó anônimo registrado via API local com sucesso:', result)
+      return result
+    } else {
+      const errorText = await response.text()
+      console.warn('⚠️ Falha ao registrar nó anônimo via API local:', response.status, errorText)
+      return null
+    }
+  } catch (error) {
+    console.error('❌ Erro ao registrar nó anônimo via API local:', error)
+    return null
+  }
+}
+
+// Função para registrar nó anônimo apenas no startup da aplicação
+let nodeRegistrationAttempted = false
+async function registerNodeOnStartup() {
+  if (nodeRegistrationAttempted) {
+    console.log('🔄 Registro de nó já foi tentado, pulando...')
+    return
+  }
+  
+  nodeRegistrationAttempted = true
+  
+  try {
+    console.log('🚀 Iniciando registro de nó anônimo no startup...')
+    const cfg = getOrCreateNodeConfig()
+    await registerAnonymousNodeInCloud(cfg)
+  } catch (error) {
+    console.warn('⚠️ Falha ao registrar nó anônimo no startup:', error)
+  }
+}
+
+// Função para registrar nó via API local (método legado) - removida pois não é mais usada
+
 // Register all IPC handlers before creating window
 console.log('🔧 Registrando handlers IPC...')
 
@@ -145,6 +207,7 @@ ipcMain.handle('nodeConfig:get', async () => {
   if (!cfg.machineId || cfg.machineId === 'unknown') { cfg.machineId = info.machineId; changed = true }
   if (!cfg.machineName || cfg.machineName === 'unknown') { cfg.machineName = info.deviceName; changed = true }
   if (changed) store.set('nodeConfig', cfg)
+  
   console.log('✅ Handler nodeConfig:get retornando:', cfg)
   return cfg
 })
@@ -201,6 +264,597 @@ ipcMain.handle('api:restart', async () => {
   }
 })
 
+ipcMain.handle('api:checkStatus', async () => {
+  try {
+    const isRunning = await apiManager.checkApiStatus()
+    const status = apiManager.getStatus()
+    return { 
+      success: true, 
+      isRunning, 
+      status: {
+        ...status,
+        isRunning
+      }
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+// Auth handlers
+ipcMain.handle('auth:register', async (_event, userData: { name: string; email: string; password: string }) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/Auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(userData)
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      let errorMessage = 'Erro ao registrar usuário'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    console.error('Erro no registro:', error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:login', async (_event, credentials: { email: string; password: string }) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/Auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(credentials)
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      let errorMessage = 'Email ou senha inválidos'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    console.error('Erro no login:', error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:logout', async (_event, token: string) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    console.log('Iniciando logout para token:', token.substring(0, 20) + '...')
+    
+    // 1. Primeiro, obter todos os nós do usuário
+    console.log('Buscando nós do usuário...')
+    const nodesResponse = await fetch(`${localApiUrl}/api/Auth/nodes`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    let unboundNodesCount = 0
+    const unboundNodeIds: string[] = []
+
+    console.log('Status da resposta de nós:', nodesResponse.status)
+    
+    if (nodesResponse.ok) {
+      const nodesData = await nodesResponse.json()
+      const userNodes: unknown[] = Array.isArray(nodesData) ? nodesData : []
+      
+      console.log('Dados dos nós recebidos:', nodesData)
+      console.log(`Encontrados ${userNodes.length} nós para desvincular`)
+      
+      // 2. Desvincular cada nó individualmente
+      for (const node of userNodes) {
+        try {
+          const nodeData = node as { id: string; name: string }
+          const unbindResponse = await fetch(`${localApiUrl}/api/Auth/unbind-node`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ nodeId: nodeData.id })
+          })
+
+          if (unbindResponse.ok) {
+            unboundNodesCount++
+            unboundNodeIds.push(nodeData.id)
+            console.log(`Nó desvinculado: ${nodeData.name} (${nodeData.id})`)
+          } else {
+            console.warn(`Falha ao desvincular nó: ${nodeData.name} (${nodeData.id})`)
+          }
+        } catch (unbindError) {
+          const nodeData = node as { id: string }
+          console.error(`Erro ao desvincular nó ${nodeData.id}:`, unbindError)
+        }
+      }
+    } else {
+      const errorText = await nodesResponse.text()
+      console.warn('Não foi possível obter lista de nós do usuário. Status:', nodesResponse.status, 'Erro:', errorText)
+    }
+
+    // 3. Agora fazer o logout
+    console.log('Fazendo logout...')
+    const logoutResponse = await fetch(`${localApiUrl}/api/Auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    console.log('Status da resposta de logout:', logoutResponse.status)
+    
+    if (logoutResponse.ok) {
+      let result = {}
+      try {
+        const responseText = await logoutResponse.text()
+        if (responseText) {
+          result = JSON.parse(responseText)
+        }
+      } catch {
+        console.warn('Resposta de logout não é JSON válido, usando resposta vazia')
+      }
+      
+      console.log('Logout realizado com sucesso:', result)
+      return { 
+        success: true, 
+        data: {
+          ...result,
+          unboundNodesCount,
+          unboundNodeIds
+        }
+      }
+    } else {
+      let errorData = { message: 'Erro no logout' }
+      try {
+        const responseText = await logoutResponse.text()
+        if (responseText) {
+          errorData = JSON.parse(responseText)
+        }
+      } catch {
+        console.warn('Resposta de erro não é JSON válido')
+      }
+      
+      console.error('Erro no logout:', errorData)
+      return { success: false, error: errorData.message || 'Erro no logout' }
+    }
+  } catch (error) {
+    console.error('Erro no logout:', error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:getProfile', async (_event, token: string) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/Auth/profile`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      }
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      return { success: false, error: 'Erro ao obter perfil do usuário' }
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:validateToken', async (_event, token: string) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/Auth/validate-token`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      }
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, valid: false }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, valid: result.valid }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, valid: false }
+      }
+    } else {
+      return { success: false, valid: false }
+    }
+  } catch {
+    return { success: false, valid: false }
+  }
+})
+
+ipcMain.handle('auth:bindNode', async (_event, data: { token: string; anonymousToken: string }) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/Auth/bind-node`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${data.token}`,
+      },
+      body: JSON.stringify({ anonymousToken: data.anonymousToken })
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      let errorMessage = 'Erro ao vincular nó ao usuário'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:getUserNodes', async (_event, token: string) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/User/nodes`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      }
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      let errorMessage = 'Erro ao obter nós do usuário'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:getAvailableNodes', async () => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/AnonymousNode/available`, {
+      method: 'GET',
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      let errorMessage = 'Erro ao obter nós disponíveis'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:checkNodeConnection', async (_event, data: { token: string; machineId: string }) => {
+  try {
+    console.log('🔍 Verificando conexão do nó:', { machineId: data.machineId, tokenLength: data.token?.length })
+    
+    const localApiUrl = 'http://localhost:5001'
+    console.log('🌐 Fazendo requisição para:', `${localApiUrl}/api/User/nodes`)
+    
+    const response = await fetch(`${localApiUrl}/api/User/nodes`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${data.token}`,
+      }
+    })
+
+    console.log('📡 Resposta da API (checkNodeConnection):', { status: response.status, statusText: response.statusText })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      console.log('✅ Resposta da API (checkNodeConnection):', responseText)
+      
+      if (!responseText) {
+        console.warn('⚠️ Resposta vazia da API')
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        console.log('📋 Nós do usuário:', result)
+        
+        // Verificar se algum nó do usuário tem o mesmo machineId
+        const connectedNode = result.find((node: { machineId: string }) => node.machineId === data.machineId)
+        console.log('🔍 Nó conectado encontrado:', connectedNode)
+        
+        return { 
+          success: true, 
+          isConnected: !!connectedNode,
+          node: connectedNode || null,
+          wasUnbound: !connectedNode // Indica se o nó foi desvinculado remotamente
+        }
+      } catch (parseError) {
+        console.error('❌ Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      console.error('❌ Erro na API (checkNodeConnection):', { status: response.status, statusText: response.statusText, responseText })
+      
+      let errorMessage = 'Erro ao verificar conexão do nó'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    console.error('❌ Erro na verificação de conexão do nó:', error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:bindCurrentNode', async (_event, data: { token: string; machineId: string }) => {
+  try {
+    console.log('🔗 Tentando conectar nó:', { machineId: data.machineId, tokenLength: data.token?.length })
+    
+    // Verificar se a API está rodando primeiro
+    const apiStatus = await apiManager.checkApiStatus()
+    if (!apiStatus) {
+      console.error('❌ API não está rodando')
+      return { success: false, error: 'API não está rodando. Tente reiniciar a aplicação.' }
+    }
+    
+    const localApiUrl = 'http://localhost:5001'
+    console.log('🌐 Fazendo requisição para:', `${localApiUrl}/api/Auth/bind-current-node`)
+    
+    const response = await fetch(`${localApiUrl}/api/Auth/bind-current-node`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${data.token}`,
+      },
+      body: JSON.stringify({ machineId: data.machineId })
+    })
+
+    console.log('📡 Resposta da API:', { status: response.status, statusText: response.statusText })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      console.log('✅ Resposta da API (sucesso):', responseText)
+      
+      if (!responseText) {
+        console.warn('⚠️ Resposta vazia da API')
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        console.log('✅ Nó conectado com sucesso:', result)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('❌ Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      console.error('❌ Erro na API:', { status: response.status, statusText: response.statusText, responseText })
+      
+      let errorMessage = 'Erro ao conectar nó'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+          console.log('📝 Mensagem de erro da API:', errorMessage)
+        } catch {
+          errorMessage = responseText || errorMessage
+          console.log('📝 Erro como texto:', errorMessage)
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    console.error('❌ Erro na conexão do nó:', error)
+    
+    // Verificar se é erro de conexão
+    if (error instanceof Error && error.message.includes('fetch')) {
+      return { success: false, error: 'Erro de conexão com a API. Verifique se a API está rodando.' }
+    }
+    
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('auth:unbindNode', async (_event, data: { token: string; nodeId: string }) => {
+  try {
+    const localApiUrl = 'http://localhost:5001'
+    const response = await fetch(`${localApiUrl}/api/User/unbind-node`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${data.token}`,
+      },
+      body: JSON.stringify({ nodeId: data.nodeId })
+    })
+
+    if (response.ok) {
+      const responseText = await response.text()
+      if (!responseText) {
+        return { success: false, error: 'Resposta vazia da API' }
+      }
+      
+      try {
+        const result = JSON.parse(responseText)
+        return { success: true, data: result }
+      } catch (parseError) {
+        console.error('Erro ao fazer parse da resposta:', parseError)
+        return { success: false, error: 'Resposta inválida da API' }
+      }
+    } else {
+      const responseText = await response.text()
+      let errorMessage = 'Erro ao desconectar nó'
+      
+      if (responseText) {
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch {
+          errorMessage = responseText || errorMessage
+        }
+      }
+      
+      return { success: false, error: errorMessage }
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
 console.log('✅ Handlers IPC registrados com sucesso')
 
 app.whenReady().then(async () => {
@@ -211,6 +865,9 @@ app.whenReady().then(async () => {
   try {
     console.log('🔍 Garantindo que a API esteja rodando antes de criar a janela...')
     await apiManager.ensureApiRunning()
+    
+    // Registrar nó anônimo apenas no startup
+    await registerNodeOnStartup()
   } catch (error) {
     console.error('❌ Erro ao verificar/iniciar API:', error instanceof Error ? error.message : String(error))
   }

@@ -10,7 +10,7 @@ export class HttpClient {
   private readonly defaultHeaders: Record<string, string>
 
   constructor(options?: HttpClientOptions) {
-    this.baseUrl = options?.baseUrl ?? 'http://localhost:5000'
+    this.baseUrl = options?.baseUrl ?? 'http://localhost:8000'
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...(options?.headers ?? {}),

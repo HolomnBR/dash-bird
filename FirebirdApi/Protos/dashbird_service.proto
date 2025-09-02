@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+option csharp_namespace = "FirebirdApi.Protos";
+
+package dashbird;
+
+// Serviço gRPC para operações Firebird
+service DashBirdService {
+  // Testar conexão
+  rpc TestConnection(TestConnectionRequest) returns (TestConnectionResponse);
+  
+  // Executar query SELECT
+  rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
+  
+  // Executar comando DML/DDL
+  rpc ExecuteNonQuery(ExecuteNonQueryRequest) returns (ExecuteNonQueryResponse);
+  
+  // Executar escalar
+  rpc ExecuteScalar(ExecuteScalarRequest) returns (ExecuteScalarResponse);
+  
+  // Obter informações das tabelas
+  rpc GetTables(GetTablesRequest) returns (GetTablesResponse);
+  
+  // Obter informações de uma tabela específica
+  rpc GetTableInfo(GetTableInfoRequest) returns (GetTableInfoResponse);
+}
+
+// Mensagens de requisição
+message TestConnectionRequest {
+  string database_id = 1;
+}
+
+message ExecuteQueryRequest {
+  string query = 1;
+  string database_id = 2;
+}
+
+message ExecuteNonQueryRequest {
+  string query = 1;
+  string database_id = 2;
+}
+
+message ExecuteScalarRequest {
+  string query = 1;
+  string database_id = 2;
+}
+
+message GetTablesRequest {
+  string database_id = 1;
+}
+
+message GetTableInfoRequest {
+  string table_name = 1;
+  string database_id = 2;
+}
+
+// Mensagens de resposta
+message TestConnectionResponse {
+  bool success = 1;
+  string message = 2;
+  string database_id = 3;
+}
+
+message ExecuteQueryResponse {
+  bool success = 1;
+  string message = 2;
+  repeated QueryRow data = 3;
+  string database_id = 4;
+}
+
+message ExecuteNonQueryResponse {
+  bool success = 1;
+  string message = 2;
+  int32 rows_affected = 3;
+  string database_id = 4;
+}
+
+message ExecuteScalarResponse {
+  bool success = 1;
+  string message = 2;
+  string data = 3;
+  string database_id = 4;
+}
+
+message GetTablesResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string table_names = 3;
+  string database_id = 4;
+}
+
+message GetTableInfoResponse {
+  bool success = 1;
+  string message = 2;
+  TableInfo table_info = 3;
+  string database_id = 4;
+}
+
+// Estruturas de dados
+message QueryRow {
+  map<string, string> columns = 1;
+}
+
+message TableInfo {
+  string table_name = 1;
+  string schema = 2;
+  repeated ColumnInfo columns = 3;
+}
+
+message ColumnInfo {
+  string column_name = 1;
+  string data_type = 2;
+  bool is_nullable = 3;
+  int32 max_length = 4;
+  bool is_primary_key = 5;
+}

@@ -1,0 +1,55 @@
+### Teste dos endpoints de logout e unbind no FireBirdAPI
+### Este arquivo testa o fluxo completo no FireBirdAPI (API local)
+
+### 1. Primeiro, fazer login para obter um token
+POST http://localhost:5000/api/Auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+### 2. Registrar um nó anônimo
+POST http://localhost:5000/api/Auth/anonymous/register
+Content-Type: application/json
+
+{
+  "name": "Test Node",
+  "machineId": "TEST-MACHINE-001",
+  "ipAddress": "192.168.1.100",
+  "port": 8080,
+  "databasePath": "C:\\Test\\database.fdb",
+  "version": "1.0.0",
+  "operatingSystem": "Windows 10"
+}
+
+### 3. Vincular o nó anônimo ao usuário (usar o token do login e anonymousToken do registro)
+POST http://localhost:5000/api/Auth/bind-node
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "anonymousToken": "{{anonymousToken}}"
+}
+
+### 4. Verificar nós do usuário (deve mostrar o nó vinculado)
+GET http://localhost:5000/api/Auth/nodes
+Authorization: Bearer {{token}}
+
+### 5. Desvincular um nó específico
+POST http://localhost:5000/api/Auth/unbind-node
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "nodeId": "{{nodeId}}"
+}
+
+### 6. Fazer logout (apenas registra o logout, não desvincula nós)
+POST http://localhost:5000/api/Auth/logout
+Authorization: Bearer {{token}}
+
+### 7. Tentar acessar nós do usuário após logout (deve retornar 401)
+GET http://localhost:5000/api/Auth/nodes
+Authorization: Bearer {{token}}
