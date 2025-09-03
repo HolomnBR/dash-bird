@@ -1,0 +1,30 @@
+### Testar SystemInfoService - Verificar informações do sistema
+POST http://localhost:8000/api/sync/register-node
+Content-Type: application/json
+
+{
+  "name": "Test Node",
+  "machineId": "test-machine-123",
+  "ipAddress": "127.0.0.1",
+  "port": 8000,
+  "version": "",
+  "operatingSystem": "",
+  "machineName": ""
+}
+
+### Testar informações do sistema diretamente
+GET http://localhost:8000/api/database-config/system-info
+
+### Testar registro com informações do sistema preenchidas
+POST http://localhost:8000/api/sync/register-node
+Content-Type: application/json
+
+{
+  "name": "Test Node with System Info",
+  "machineId": "test-machine-456",
+  "ipAddress": "127.0.0.1",
+  "port": 8000,
+  "version": "2.1.3",
+  "operatingSystem": "Windows 11 Pro",
+  "machineName": "DESKTOP-TEST"
+}

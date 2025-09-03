@@ -183,14 +183,16 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     // NOVO: Registro unificado - uma única chamada que faz tudo
     const nodeRegistrationData = {
       nodeId: nodeConfig.nodeId, // Usar o nodeId do Electron como connectionId
-      name: nodeConfig.alias || nodeConfig.machineName || `Node-${nodeConfig.nodeId.slice(0, 8)}`,
+      name: nodeConfig.alias || `Desktop Node (${nodeConfig.machineName})` || `Node-${nodeConfig.nodeId.slice(0, 8)}`,
       machineName: nodeConfig.machineName, // Incluir machineName explicitamente
       machineId: nodeConfig.machineId,
       ipAddress: '::1',
       port: 5000,
       databasePath: null,
-      version: '1.0.0',
-      operatingSystem: process.platform
+      version: '2.1.3',
+      operatingSystem: process.platform === 'win32' ? 'Windows 11 Pro' : 
+                      process.platform === 'darwin' ? 'macOS' : 
+                      process.platform === 'linux' ? 'Linux' : 'Unknown'
     }
     
     console.log('🔄 Registrando node unificado (registro + streaming):', nodeRegistrationData)
@@ -211,7 +213,7 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     clearTimeout(timeoutId)
     
     if (response.ok) {
-      const result = await response.json()
+      const result = await response.json() as { success: boolean; data?: { isConnected?: boolean } }
       console.log('✅ Node registrado e streaming iniciado com sucesso:', result)
       
       // Verificar se o streaming está realmente conectado
@@ -293,6 +295,42 @@ ipcMain.handle('nodeConfig:setAlias', async (_event, alias: string) => {
   cfg.alias = alias ?? ''
   store.set('nodeConfig', cfg)
   return cfg
+})
+
+ipcMain.handle('registerNode', async (_event, databasePath?: string) => {
+  try {
+    console.log('📡 Handler registerNode chamado com databasePath:', databasePath)
+    const cfg = getOrCreateNodeConfig()
+    const user = await getLoggedUser()
+    await registerNodeAndStartStreaming(cfg, user?.id)
+    
+    // Retornar informações do nó registrado
+    return {
+      success: true,
+      data: {
+        id: cfg.nodeId,
+        name: cfg.alias || `Desktop Node (${cfg.machineName})`,
+        machineId: cfg.machineId,
+        machineName: cfg.machineName,
+        ipAddress: '::1',
+        port: 5000,
+        databasePath: databasePath || null,
+        version: '2.1.3',
+        operatingSystem: process.platform === 'win32' ? 'Windows' : 
+                        process.platform === 'darwin' ? 'macOS' : 
+                        process.platform === 'linux' ? 'Linux' : 'Unknown',
+        lastSeen: new Date().toISOString(),
+        createdAt: cfg.createdAt,
+        isActive: true
+      }
+    }
+  } catch (error) {
+    console.error('❌ Erro no handler registerNode:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Erro desconhecido'
+    }
+  }
 })
 
 ipcMain.handle('dialog:openFile', async (_event, options?: { filters?: Array<{ name: string; extensions: string[] }> }) => {

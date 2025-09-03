@@ -4,6 +4,7 @@ using System.Text.Json;
 using FirebirdApi.Services;
 using FirebirdApi.Models;
 using FirebirdApi.Protos;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace FirebirdApi.Controllers
 {
@@ -17,8 +18,9 @@ namespace FirebirdApi.Controllers
         private readonly IDatabaseConfigService _configService;
         private readonly IMachineIdService _machineIdService;
         private readonly ICommandStreamService _commandStreamService;
+        private readonly ISystemInfoService _systemInfoService;
 
-        public SyncController(HttpClient httpClient, IConfiguration configuration, ILogger<SyncController> logger, IDatabaseConfigService configService, IMachineIdService machineIdService, ICommandStreamService commandStreamService)
+        public SyncController(HttpClient httpClient, IConfiguration configuration, ILogger<SyncController> logger, IDatabaseConfigService configService, IMachineIdService machineIdService, ICommandStreamService commandStreamService, ISystemInfoService systemInfoService)
         {
             _httpClient = httpClient;
             _configuration = configuration;
@@ -26,6 +28,7 @@ namespace FirebirdApi.Controllers
             _configService = configService;
             _machineIdService = machineIdService;
             _commandStreamService = commandStreamService;
+            _systemInfoService = systemInfoService;
         }
 
         /// <summary>
@@ -52,12 +55,29 @@ namespace FirebirdApi.Controllers
                 // Gerar connectionId único baseado no nodeId
                 var connectionId = request.NodeId ?? Guid.NewGuid().ToString();
                 
-                // Iniciar streaming gRPC (que já registra o nó automaticamente)
-                await _commandStreamService.StartStreamingAsync(connectionId, request.MachineId, authToken, connectionId, request.Name, request.MachineName);
+                // Obter informações do sistema
+                var operatingSystem = _systemInfoService.GetOperatingSystem();
+                var systemVersion = _systemInfoService.GetSystemVersion();
+                
+                // Atualizar request com informações do sistema se não foram fornecidas
+                if (string.IsNullOrEmpty(request.OperatingSystem))
+                {
+                    request.OperatingSystem = operatingSystem;
+                }
+                if (string.IsNullOrEmpty(request.Version))
+                {
+                    request.Version = systemVersion;
+                }
+                
+                // 1. Iniciar streaming gRPC (que já registra o nó automaticamente)
+                await _commandStreamService.StartStreamingAsync(connectionId, request.MachineId, authToken, connectionId, request.Name, request.MachineName, request.Version, request.OperatingSystem);
 
                 if (_commandStreamService.IsConnected)
                 {
                     _logger.LogInformation("✅ Nó registrado e streaming iniciado com sucesso - isAnonymous: {IsAnonymous}", isAnonymous);
+                    
+                    // 2. Sincronizar databases automaticamente após registro do nó
+                    await SyncAllDatabasesToCloudAsync();
                     
                     return Ok(new { 
                         success = true, 
@@ -237,6 +257,324 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Atualizar tamanhos de todas as bases de dados locais
+        /// </summary>
+        [HttpPost("update-database-sizes")]
+        public async Task<IActionResult> UpdateDatabaseSizes()
+        {
+            try
+            {
+                _logger.LogInformation("Atualizando tamanhos de todas as bases de dados");
+
+                var success = await _configService.UpdateAllDatabaseFileSizesAsync();
+                
+                if (success)
+                {
+                    var databases = await _configService.GetAllDatabasesAsync();
+                    var results = databases.Select(db => new
+                    {
+                        id = db.Id,
+                        name = db.Name,
+                        fileSizeBytes = db.FileSizeBytes,
+                        lastSizeCheck = db.LastSizeCheck,
+                        fileSizeFormatted = db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A"
+                    }).ToList();
+
+                    return Ok(new
+                    {
+                        success = true,
+                        data = results,
+                        message = $"Tamanhos atualizados para {results.Count} bases de dados"
+                    });
+                }
+                else
+                {
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        error = "Erro ao atualizar tamanhos das bases de dados"
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro interno ao atualizar tamanhos das bases");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sincronizar uma base específica quando criada (cenário 1)
+        /// </summary>
+        [HttpPost("sync-database-created/{databaseId}")]
+        public async Task<IActionResult> SyncDatabaseCreated(string databaseId)
+        {
+            try
+            {
+                _logger.LogInformation("Sincronizando base criada: {DatabaseId}", databaseId);
+
+                var database = await _configService.GetDatabaseByIdAsync(databaseId);
+                if (database == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        error = $"Base de dados com ID '{databaseId}' não encontrada"
+                    });
+                }
+
+                // Atualizar tamanho do arquivo
+                await _configService.UpdateAllDatabaseFileSizesAsync();
+
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var machineId = GetMachineId();
+
+                var request = new
+                {
+                    DesktopNodeId = machineId,
+                    Name = database.Name,
+                    Server = database.Server,
+                    Database = database.Database,
+                    User = database.Username,
+                    Password = database.Password,
+                    Port = database.Port,
+                    Charset = database.Charset,
+                    FileSizeBytes = database.FileSizeBytes,
+                    LastSizeCheck = database.LastSizeCheck,
+                    OperatingSystem = _systemInfoService.GetOperatingSystem(),
+                    SystemVersion = _systemInfoService.GetSystemVersion(),
+                    SyncReason = "DATABASE_CREATED"
+                };
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{cloudServerUrl}/api/DatabaseConfig/register-database",
+                    request
+                );
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Base criada sincronizada com sucesso: {DatabaseName}", database.Name);
+                    return Ok(new
+                    {
+                        success = true,
+                        data = new
+                        {
+                            databaseId = database.Id,
+                            name = database.Name,
+                            fileSizeBytes = database.FileSizeBytes,
+                            fileSizeFormatted = database.FileSizeBytes.HasValue ? FormatFileSize(database.FileSizeBytes.Value) : "N/A",
+                            syncReason = "DATABASE_CREATED"
+                        },
+                        message = "Base criada sincronizada com o servidor cloud"
+                    });
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao sincronizar base criada: {DatabaseName} - {Error}",
+                        database.Name, errorContent);
+                    return StatusCode((int)response.StatusCode, new
+                    {
+                        success = false,
+                        error = $"Erro ao sincronizar base criada: {response.StatusCode}",
+                        details = errorContent
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro interno ao sincronizar base criada: {DatabaseId}", databaseId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sincronizar base quando solicitada pelo servidor (cenário 2)
+        /// </summary>
+        [HttpPost("sync-database-requested/{databaseId}")]
+        public async Task<IActionResult> SyncDatabaseRequested(string databaseId)
+        {
+            try
+            {
+                _logger.LogInformation("Sincronizando base solicitada pelo servidor: {DatabaseId}", databaseId);
+
+                var database = await _configService.GetDatabaseByIdAsync(databaseId);
+                if (database == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        error = $"Base de dados com ID '{databaseId}' não encontrada"
+                    });
+                }
+
+                // Atualizar tamanho do arquivo
+                await _configService.UpdateAllDatabaseFileSizesAsync();
+
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var machineId = GetMachineId();
+
+                var request = new
+                {
+                    DesktopNodeId = machineId,
+                    Name = database.Name,
+                    Server = database.Server,
+                    Database = database.Database,
+                    User = database.Username,
+                    Password = database.Password,
+                    Port = database.Port,
+                    Charset = database.Charset,
+                    FileSizeBytes = database.FileSizeBytes,
+                    LastSizeCheck = database.LastSizeCheck,
+                    OperatingSystem = _systemInfoService.GetOperatingSystem(),
+                    SystemVersion = _systemInfoService.GetSystemVersion(),
+                    SyncReason = "SERVER_REQUESTED"
+                };
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{cloudServerUrl}/api/DatabaseConfig/register-database",
+                    request
+                );
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Base solicitada sincronizada com sucesso: {DatabaseName}", database.Name);
+                    return Ok(new
+                    {
+                        success = true,
+                        data = new
+                        {
+                            databaseId = database.Id,
+                            name = database.Name,
+                            fileSizeBytes = database.FileSizeBytes,
+                            fileSizeFormatted = database.FileSizeBytes.HasValue ? FormatFileSize(database.FileSizeBytes.Value) : "N/A",
+                            syncReason = "SERVER_REQUESTED"
+                        },
+                        message = "Base solicitada sincronizada com o servidor cloud"
+                    });
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao sincronizar base solicitada: {DatabaseName} - {Error}",
+                        database.Name, errorContent);
+                    return StatusCode((int)response.StatusCode, new
+                    {
+                        success = false,
+                        error = $"Erro ao sincronizar base solicitada: {response.StatusCode}",
+                        details = errorContent
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro interno ao sincronizar base solicitada: {DatabaseId}", databaseId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sincronizar base após backup (cenário 3)
+        /// </summary>
+        [HttpPost("sync-database-after-backup/{databaseId}")]
+        public async Task<IActionResult> SyncDatabaseAfterBackup(string databaseId)
+        {
+            try
+            {
+                _logger.LogInformation("Sincronizando base após backup: {DatabaseId}", databaseId);
+
+                var database = await _configService.GetDatabaseByIdAsync(databaseId);
+                if (database == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        error = $"Base de dados com ID '{databaseId}' não encontrada"
+                    });
+                }
+
+                // Atualizar tamanho do arquivo (pode ter mudado após backup)
+                await _configService.UpdateAllDatabaseFileSizesAsync();
+
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var machineId = GetMachineId();
+
+                var request = new
+                {
+                    DesktopNodeId = machineId,
+                    Name = database.Name,
+                    Server = database.Server,
+                    Database = database.Database,
+                    User = database.Username,
+                    Password = database.Password,
+                    Port = database.Port,
+                    Charset = database.Charset,
+                    FileSizeBytes = database.FileSizeBytes,
+                    LastSizeCheck = database.LastSizeCheck,
+                    OperatingSystem = _systemInfoService.GetOperatingSystem(),
+                    SystemVersion = _systemInfoService.GetSystemVersion(),
+                    SyncReason = "AFTER_BACKUP"
+                };
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{cloudServerUrl}/api/DatabaseConfig/register-database",
+                    request
+                );
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Base após backup sincronizada com sucesso: {DatabaseName}", database.Name);
+                    return Ok(new
+                    {
+                        success = true,
+                        data = new
+                        {
+                            databaseId = database.Id,
+                            name = database.Name,
+                            fileSizeBytes = database.FileSizeBytes,
+                            fileSizeFormatted = database.FileSizeBytes.HasValue ? FormatFileSize(database.FileSizeBytes.Value) : "N/A",
+                            syncReason = "AFTER_BACKUP"
+                        },
+                        message = "Base após backup sincronizada com o servidor cloud"
+                    });
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao sincronizar base após backup: {DatabaseName} - {Error}",
+                        database.Name, errorContent);
+                    return StatusCode((int)response.StatusCode, new
+                    {
+                        success = false,
+                        error = $"Erro ao sincronizar base após backup: {response.StatusCode}",
+                        details = errorContent
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro interno ao sincronizar base após backup: {DatabaseId}", databaseId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
         /// Sincronizar todas as databases locais com o servidor cloud
         /// </summary>
         [HttpPost("sync-databases")]
@@ -244,79 +582,138 @@ namespace FirebirdApi.Controllers
         {
             try
             {
-                _logger.LogInformation("Iniciando sincronização de databases com o servidor cloud");
-
-                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
-                var machineId = GetMachineId();
-
-                // Obter todas as databases locais
-                var localDatabases = await _configService.GetAllDatabasesAsync();
-                var syncResults = new List<object>();
-
-                foreach (var database in localDatabases)
-                {
-                    try
-                    {
-                        var request = new
-                        {
-                            DesktopNodeId = machineId,
-                            Name = database.Name,
-                            Server = database.Server,
-                            Database = database.Database,
-                            User = database.Username,
-                            Password = database.Password,
-                            Port = database.Port,
-                            Charset = database.Charset
-                        };
-
-                        var response = await _httpClient.PostAsJsonAsync(
-                            $"{cloudServerUrl}/api/DatabaseConfig/register-database", 
-                            request
-                        );
-
-                        if (response.IsSuccessStatusCode)
-                        {
-                            syncResults.Add(new { 
-                                databaseId = database.Id, 
-                                name = database.Name, 
-                                status = "success" 
-                            });
-                            _logger.LogInformation("Database sincronizada: {DatabaseName}", database.Name);
-                        }
-                        else
-                        {
-                            var errorContent = await response.Content.ReadAsStringAsync();
-                            syncResults.Add(new { 
-                                databaseId = database.Id, 
-                                name = database.Name, 
-                                status = "error", 
-                                error = errorContent 
-                            });
-                            _logger.LogWarning("Falha ao sincronizar database: {DatabaseName} - {Error}", 
-                                database.Name, errorContent);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        syncResults.Add(new { 
-                            databaseId = database.Id, 
-                            name = database.Name, 
-                            status = "error", 
-                            error = ex.Message 
-                        });
-                        _logger.LogError(ex, "Erro ao sincronizar database: {DatabaseName}", database.Name);
-                    }
-                }
-
+                _logger.LogInformation("🔄 Iniciando sincronização manual de databases com o servidor cloud");
+                await SyncAllDatabasesToCloudAsync();
+                
                 return Ok(new { 
                     success = true, 
-                    data = syncResults, 
-                    message = $"Sincronização concluída. {syncResults.Count(r => r.GetType().GetProperty("status")?.GetValue(r)?.ToString() == "success")} databases sincronizadas com sucesso." 
+                    message = "Sincronização manual de databases concluída com sucesso" 
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro interno ao sincronizar databases");
+                _logger.LogError(ex, "❌ Erro interno ao sincronizar databases");
+                return StatusCode(500, new { 
+                    success = false, 
+                    error = $"Erro interno: {ex.Message}" 
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sincronizar databases via gRPC (método preferido)
+        /// </summary>
+        [HttpPost("sync-databases-grpc")]
+        [SwaggerOperation(
+            Summary = "Sincronizar databases via gRPC",
+            Description = "Envia todas as databases locais para o servidor cloud via streaming gRPC (método preferido)."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> SyncDatabasesViaGrpc()
+        {
+            try
+            {
+                if (!_commandStreamService.IsConnected)
+                {
+                    return BadRequest(new { 
+                        success = false, 
+                        error = "Streaming gRPC não está conectado. Inicie o streaming primeiro." 
+                    });
+                }
+
+                _logger.LogInformation("🔄 Iniciando sincronização de databases via gRPC");
+
+                var databases = await _configService.GetAllDatabasesAsync();
+                
+                if (!databases.Any())
+                {
+                    return Ok(new { 
+                        success = true, 
+                        message = "Nenhuma database local encontrada para sincronizar.",
+                        databasesCount = 0
+                    });
+                }
+
+                // Atualizar tamanhos dos arquivos antes de enviar
+                await _configService.UpdateAllDatabaseFileSizesAsync();
+
+                // Vincular databases ao nó atual se necessário
+                var machineId = GetMachineId();
+                await VinculateDatabasesToNodeAsync(machineId);
+
+                // Enviar via gRPC
+                await _commandStreamService.SendDatabaseSyncAsync("FULL_SYNC", "MANUAL_SYNC_VIA_GRPC", databases);
+
+                _logger.LogInformation("✅ Sincronização de databases via gRPC concluída: {Count} databases", databases.Count);
+
+                return Ok(new { 
+                    success = true, 
+                    message = $"Sincronização via gRPC concluída com sucesso. {databases.Count} databases enviadas.",
+                    databasesCount = databases.Count,
+                    method = "gRPC",
+                    databases = databases.Select(db => new {
+                        id = db.Id,
+                        name = db.Name,
+                        server = db.Server,
+                        database = db.Database,
+                        fileSizeBytes = db.FileSizeBytes,
+                        fileSizeFormatted = db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A",
+                        desktopNodeId = db.DesktopNodeId
+                    }).ToList(),
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao sincronizar databases via gRPC");
+                return StatusCode(500, new { 
+                    success = false, 
+                    error = $"Erro interno: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        /// <summary>
+        /// Verificar status das databases locais e se estão sincronizadas
+        /// </summary>
+        [HttpGet("database-status")]
+        public async Task<IActionResult> GetDatabaseStatus()
+        {
+            try
+            {
+                var localDatabases = await _configService.GetAllDatabasesAsync();
+                var machineId = GetMachineId();
+                
+                var status = new
+                {
+                    machineId = machineId,
+                    localDatabasesCount = localDatabases.Count,
+                    localDatabases = localDatabases.Select(db => new
+                    {
+                        id = db.Id,
+                        name = db.Name,
+                        server = db.Server,
+                        database = db.Database,
+                        fileSizeBytes = db.FileSizeBytes,
+                        fileSizeFormatted = db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A",
+                        lastSizeCheck = db.LastSizeCheck,
+                        createdAt = db.CreatedAt,
+                        isActive = db.IsActive
+                    }).ToList(),
+                    timestamp = DateTime.UtcNow
+                };
+
+                return Ok(new { 
+                    success = true, 
+                    data = status,
+                    message = $"Status das databases locais: {localDatabases.Count} databases encontradas"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao obter status das databases");
                 return StatusCode(500, new { 
                     success = false, 
                     error = $"Erro interno: {ex.Message}" 
@@ -476,6 +873,204 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Verificar status de sincronização de databases
+        /// </summary>
+        [HttpGet("sync-status")]
+        public async Task<IActionResult> GetSyncStatus()
+        {
+            try
+            {
+                var machineId = GetMachineId();
+                var localDatabases = await _configService.GetAllDatabasesAsync();
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                
+                var status = new
+                {
+                    machineId = machineId,
+                    localDatabasesCount = localDatabases.Count,
+                    localDatabases = localDatabases.Select(db => new
+                    {
+                        id = db.Id,
+                        name = db.Name,
+                        server = db.Server,
+                        database = db.Database,
+                        fileSizeBytes = db.FileSizeBytes,
+                        fileSizeFormatted = db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A",
+                        lastSizeCheck = db.LastSizeCheck,
+                        createdAt = db.CreatedAt,
+                        isActive = db.IsActive,
+                        desktopNodeId = db.DesktopNodeId
+                    }).ToList(),
+                    grpcStreaming = new
+                    {
+                        isConnected = _commandStreamService.IsConnected,
+                        connectionId = _commandStreamService.CurrentConnectionId,
+                        lastSeenAt = _commandStreamService.LastSeenAt
+                    },
+                    cloudServer = new
+                    {
+                        url = cloudServerUrl,
+                        isReachable = false // Será preenchido abaixo
+                    },
+                    timestamp = DateTime.UtcNow
+                };
+
+                // Verificar se o servidor cloud está acessível
+                try
+                {
+                    var healthResponse = await _httpClient.GetAsync($"{cloudServerUrl}/health", 
+                        new CancellationTokenSource(5000).Token);
+                    status = status with { cloudServer = status.cloudServer with { isReachable = healthResponse.IsSuccessStatusCode } };
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("⚠️ Servidor cloud não está acessível: {Error}", ex.Message);
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = status,
+                    message = $"Status de sincronização: {localDatabases.Count} databases locais, gRPC: {(status.grpcStreaming.isConnected ? "Conectado" : "Desconectado")}"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao verificar status de sincronização");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        /// <summary>
+        /// Forçar sincronização completa das databases (endpoint de teste)
+        /// </summary>
+        [HttpPost("force-sync-databases")]
+        public async Task<IActionResult> ForceSyncDatabases()
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Forçando sincronização completa das databases...");
+
+                var machineId = GetMachineId();
+                var localDatabases = await _configService.GetAllDatabasesAsync();
+
+                if (!localDatabases.Any())
+                {
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Nenhuma database local encontrada para sincronizar",
+                        databasesCount = 0,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                // 1. Atualizar tamanhos dos arquivos
+                await _configService.UpdateAllDatabaseFileSizesAsync();
+
+                // 2. Vincular databases ao nó atual
+                await VinculateDatabasesToNodeAsync(machineId);
+
+                // 3. Tentar sincronização via gRPC primeiro
+                if (_commandStreamService.IsConnected)
+                {
+                    try
+                    {
+                        _logger.LogInformation("📡 Tentando sincronização via gRPC...");
+                        await _commandStreamService.SendDatabaseSyncAsync("FORCE_SYNC", "MANUAL_FORCE_SYNC", localDatabases);
+                        
+                        return Ok(new
+                        {
+                            success = true,
+                            message = $"Sincronização forçada via gRPC concluída com sucesso. {localDatabases.Count} databases enviadas.",
+                            databasesCount = localDatabases.Count,
+                            method = "gRPC",
+                            databases = localDatabases.Select(db => new
+                            {
+                                id = db.Id,
+                                name = db.Name,
+                                server = db.Server,
+                                database = db.Database,
+                                fileSizeBytes = db.FileSizeBytes,
+                                fileSizeFormatted = db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A",
+                                desktopNodeId = db.DesktopNodeId
+                            }).ToList(),
+                            timestamp = DateTime.UtcNow
+                        });
+                    }
+                    catch (Exception grpcEx)
+                    {
+                        _logger.LogError(grpcEx, "❌ Falha na sincronização via gRPC: {Error}", grpcEx.Message);
+                        _logger.LogInformation("🔄 Tentando sincronização via HTTP como fallback...");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Streaming gRPC não está conectado, usando HTTP como fallback");
+                }
+
+                // 4. Fallback para HTTP
+                var successCount = 0;
+                var errorCount = 0;
+                var errors = new List<string>();
+
+                foreach (var database in localDatabases)
+                {
+                    try
+                    {
+                        await SendDatabaseToCloudAsync(database);
+                        successCount++;
+                        _logger.LogInformation("✅ Database sincronizada via HTTP: {DatabaseName}", database.Name);
+                    }
+                    catch (Exception dbEx)
+                    {
+                        errorCount++;
+                        var errorMsg = $"Erro ao sincronizar {database.Name}: {dbEx.Message}";
+                        errors.Add(errorMsg);
+                        _logger.LogError(dbEx, "❌ {Error}", errorMsg);
+                    }
+                }
+
+                return Ok(new
+                {
+                    success = errorCount == 0,
+                    message = $"Sincronização forçada via HTTP concluída. {successCount} sucessos, {errorCount} erros.",
+                    databasesCount = localDatabases.Count,
+                    successCount = successCount,
+                    errorCount = errorCount,
+                    method = "HTTP_FALLBACK",
+                    errors = errors,
+                    databases = localDatabases.Select(db => new
+                    {
+                        id = db.Id,
+                        name = db.Name,
+                        server = db.Server,
+                        database = db.Database,
+                        fileSizeBytes = db.FileSizeBytes,
+                        fileSizeFormatted = db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A",
+                        desktopNodeId = db.DesktopNodeId
+                    }).ToList(),
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro interno ao forçar sincronização das databases");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        /// <summary>
         /// Verificar status de conexão com o servidor cloud
         /// </summary>
         [HttpGet("connection-health")]
@@ -563,7 +1158,7 @@ namespace FirebirdApi.Controllers
                 }
 
                 // Reiniciar streaming
-                await _commandStreamService.StartStreamingAsync(connectionId, machineId, authToken, connectionId);
+                await _commandStreamService.StartStreamingAsync(connectionId, machineId, authToken, connectionId, null, null, null, null);
 
                 if (_commandStreamService.IsConnected)
                 {
@@ -729,6 +1324,112 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Vincula todas as databases locais ao nó especificado
+        /// </summary>
+        private async Task VinculateDatabasesToNodeAsync(string machineId)
+        {
+            try
+            {
+                var localDatabases = await _configService.GetAllDatabasesAsync();
+                
+                foreach (var database in localDatabases)
+                {
+                    // Atualizar apenas se não estiver vinculada a nenhum nó
+                    if (string.IsNullOrEmpty(database.DesktopNodeId))
+                    {
+                        database.DesktopNodeId = machineId;
+                        await _configService.UpdateDatabaseAsync(database);
+                        _logger.LogInformation("🔗 Database '{Name}' vinculada ao nó {MachineId}", database.Name, machineId);
+                    }
+                }
+                
+                _logger.LogInformation("✅ Todas as databases foram vinculadas ao nó {MachineId}", machineId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao vincular databases ao nó {MachineId}", machineId);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Sincroniza todas as databases locais com o servidor cloud (método interno)
+        /// </summary>
+        private async Task SyncAllDatabasesToCloudAsync()
+        {
+            try
+            {
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var machineId = GetMachineId();
+
+                // Verificar se o machineId é válido
+                if (string.IsNullOrEmpty(machineId))
+                {
+                    _logger.LogWarning("⚠️ MachineId não está disponível para sincronização");
+                    return;
+                }
+
+                // Obter todas as databases locais
+                var localDatabases = await _configService.GetAllDatabasesAsync();
+                
+                if (!localDatabases.Any())
+                {
+                    _logger.LogInformation("ℹ️ Nenhuma database local encontrada para sincronizar");
+                    return;
+                }
+
+                _logger.LogInformation("Sincronizando {Count} databases locais com o servidor cloud", localDatabases.Count);
+
+                // Primeiro, tentar sincronização via gRPC se estiver conectado
+                if (_commandStreamService.IsConnected)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Sincronizando databases via gRPC (método preferido)");
+                        await _commandStreamService.SendDatabaseSyncAsync("FULL_SYNC", "AUTO_SYNC_ON_NODE_REGISTRATION", localDatabases);
+                        _logger.LogInformation("✅ Sincronização automática via gRPC concluída: {Count} databases", localDatabases.Count);
+                        return; // Sucesso via gRPC, não precisa tentar HTTP
+                    }
+                    catch (Exception grpcEx)
+                    {
+                        _logger.LogError(grpcEx, "❌ Falha na sincronização via gRPC: {Error}", grpcEx.Message);
+                        _logger.LogInformation("🔄 Tentando sincronização via HTTP como fallback...");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Streaming gRPC não está conectado, usando HTTP como fallback");
+                }
+
+                // Fallback para HTTP se gRPC não estiver disponível
+                _logger.LogInformation("Sincronizando databases via HTTP (fallback)");
+
+                // Atualizar tamanhos dos arquivos uma vez antes de enviar
+                await _configService.UpdateAllDatabaseFileSizesAsync();
+
+                foreach (var database in localDatabases)
+                {
+                    try
+                    {
+                        await SendDatabaseToCloudAsync(database);
+                        _logger.LogInformation("✅ Database sincronizada via HTTP: {DatabaseName}", database.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Erro ao sincronizar database via HTTP: {DatabaseName}", database.Name);
+                    }
+                }
+
+                _logger.LogInformation("Sincronização automática de databases via HTTP concluída");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro na sincronização automática de databases");
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Obtém o MachineId correto para comunicação com o cloud
         /// </summary>
         private string GetMachineId()
@@ -747,6 +1448,111 @@ namespace FirebirdApi.Controllers
                 return authHeader.Substring("Bearer ".Length).Trim();
             }
             return null;
+        }
+
+
+
+        /// <summary>
+        /// Envia uma database local para o servidor cloud
+        /// </summary>
+        private async Task SendDatabaseToCloudAsync(Models.DatabaseConfig databaseConfig)
+        {
+            try
+            {
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var machineId = GetMachineId(); // Obter o MachineId correto
+
+                // Primeiro, tentar enviar via gRPC se estiver conectado
+                if (_commandStreamService.IsConnected)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Enviando database via gRPC: {DatabaseName}", databaseConfig.Name);
+                        await _commandStreamService.SendDatabaseSyncAsync("SINGLE_DATABASE", "DATABASE_CREATED", new List<Models.DatabaseConfig> { databaseConfig });
+                        _logger.LogInformation("✅ Database enviada via gRPC com sucesso: {DatabaseName}", databaseConfig.Name);
+                        return; // Sucesso via gRPC, não precisa tentar HTTP
+                    }
+                    catch (Exception grpcEx)
+                    {
+                        _logger.LogWarning("⚠️ Falha ao enviar via gRPC, tentando HTTP: {Error}", grpcEx.Message);
+                    }
+                }
+
+                // Fallback para HTTP se gRPC não estiver disponível
+                _logger.LogInformation("Enviando database via HTTP: {DatabaseName} -> {CloudUrl}", databaseConfig.Name, cloudServerUrl);
+
+
+
+                // Obter informações do sistema
+                var operatingSystem = _systemInfoService.GetOperatingSystem();
+                var systemVersion = _systemInfoService.GetSystemVersion();
+
+                var request = new
+                {
+                    DesktopNodeId = machineId,
+                    Name = databaseConfig.Name,
+                    Server = databaseConfig.Server,
+                    Database = databaseConfig.Database,
+                    User = databaseConfig.Username,
+                    Password = databaseConfig.Password,
+                    Port = databaseConfig.Port,
+                    Charset = databaseConfig.Charset,
+                    FileSizeBytes = databaseConfig.FileSizeBytes,
+                    LastSizeCheck = databaseConfig.LastSizeCheck,
+                    OperatingSystem = operatingSystem,
+                    SystemVersion = systemVersion,
+                    SyncReason = "DATABASE_CREATED"
+                };
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{cloudServerUrl}/api/DatabaseConfig/register-database", 
+                    request
+                );
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<object>();
+                    _logger.LogInformation("✅ Database enviada para o cloud via HTTP com sucesso: {DatabaseName} (Tamanho: {FileSize})", 
+                        databaseConfig.Name, 
+                        databaseConfig.FileSizeBytes.HasValue ? FormatFileSize(databaseConfig.FileSizeBytes.Value) : "N/A");
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("⚠️ Falha ao enviar database para o cloud via HTTP: {StatusCode} - {Error}", 
+                        response.StatusCode, errorContent);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning("⚠️ Erro de conexão ao enviar database para o cloud: {DatabaseName} - {Error}", 
+                    databaseConfig.Name, ex.Message);
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogWarning("⚠️ Timeout ao enviar database para o cloud: {DatabaseName} - {Error}", 
+                    databaseConfig.Name, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro inesperado ao enviar database para o cloud: {DatabaseName}", databaseConfig.Name);
+            }
+        }
+
+        /// <summary>
+        /// Formata o tamanho do arquivo em formato legível
+        /// </summary>
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return $"{len:0.##} {sizes[order]}";
         }
     }
 

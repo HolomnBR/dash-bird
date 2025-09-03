@@ -24,6 +24,24 @@ declare interface Window {
       createdAt: string
     }>
     openFile: (filters?: Array<{ name: string; extensions: string[] }>) => Promise<string[]>
+    registerNode: (databasePath?: string) => Promise<{
+      success: boolean
+      data?: {
+        id: string
+        name: string
+        machineId: string
+        machineName: string
+        ipAddress: string
+        port: number
+        databasePath?: string
+        version: string
+        operatingSystem: string
+        lastSeen: string
+        createdAt: string
+        isActive: boolean
+      }
+      error?: string
+    }>
   }
   auth: {
     register: (userData: { name: string; email: string; password: string }) => Promise<{ success: boolean; data?: unknown; error?: string }>

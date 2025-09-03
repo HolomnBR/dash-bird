@@ -1,0 +1,45 @@
+### Teste de Sincronização de Databases - Versão Corrigida
+
+### 1. Verificar status de sincronização
+GET http://localhost:8000/api/Sync/sync-status
+Content-Type: application/json
+
+### 2. Forçar sincronização das databases via gRPC
+POST http://localhost:8000/api/Sync/force-sync-databases
+Content-Type: application/json
+
+### 3. Sincronizar databases via gRPC (método preferido)
+POST http://localhost:8000/api/Sync/sync-databases-grpc
+Content-Type: application/json
+
+### 4. Verificar status das databases locais
+GET http://localhost:8000/api/Sync/database-status
+Content-Type: application/json
+
+### 5. Verificar status do streaming gRPC
+GET http://localhost:8000/api/Sync/streaming-status
+Content-Type: application/json
+
+### 6. Verificar saúde da conexão
+GET http://localhost:8000/api/Sync/connection-health
+Content-Type: application/json
+
+### 7. Registrar nó e iniciar streaming (teste completo)
+POST http://localhost:8000/api/Sync/register-node
+Content-Type: application/json
+
+{
+  "nodeId": "test-node-123",
+  "name": "Test Node",
+  "machineName": "DESKTOP-78ROEFC",
+  "machineId": "58bc0c2d-5fd8-4d25-80ec-f41cef3cb615",
+  "ipAddress": "::1",
+  "port": 5000,
+  "databasePath": null,
+  "version": "1.0.0",
+  "operatingSystem": "Windows"
+}
+
+### 8. Atualizar tamanhos das databases
+POST http://localhost:8000/api/Sync/update-database-sizes
+Content-Type: application/json

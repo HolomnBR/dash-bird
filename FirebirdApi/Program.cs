@@ -80,6 +80,9 @@ builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 // Registrar o serviço MachineId
 builder.Services.AddSingleton<IMachineIdService, MachineIdService>();
 
+// Registrar o serviço de informações do sistema
+builder.Services.AddSingleton<ISystemInfoService, SystemInfoService>();
+
 // Registrar o serviço de armazenamento de tokens
 builder.Services.AddSingleton<ITokenStorageService, TokenStorageService>();
 

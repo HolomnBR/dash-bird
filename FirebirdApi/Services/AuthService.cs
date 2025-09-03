@@ -669,6 +669,8 @@ namespace FirebirdApi.Services
                 return null;
             }
         }
+
+
     }
 
     // DTOs para comunicação com o servidor cloud

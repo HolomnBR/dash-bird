@@ -17,6 +17,7 @@ namespace FirebirdApi.Services
         Task<DatabaseConfig?> GetDefaultDatabaseAsync();
         Task<bool> SetDefaultDatabaseAsync(string id);
         Task<ProjectConfig> GetProjectConfigAsync();
+        Task<bool> UpdateAllDatabaseFileSizesAsync();
     }
 
     public class DatabaseConfigService : IDatabaseConfigService
@@ -150,6 +151,9 @@ namespace FirebirdApi.Services
             config.CreatedAt = DateTime.UtcNow;
             config.IsActive = true;
 
+            // Capturar tamanho do arquivo da base
+            await UpdateDatabaseFileSizeAsync(config);
+
             // Verificar se já existe uma configuração com o mesmo ID
             var existingConfig = _databases.FirstOrDefault(db => db.Id == config.Id);
             if (existingConfig != null)
@@ -191,6 +195,13 @@ namespace FirebirdApi.Services
             if (existingDatabase != null)
             {
                 var index = _databases.IndexOf(existingDatabase);
+                
+                // Atualizar tamanho do arquivo se o caminho da base mudou
+                if (existingDatabase.Database != config.Database)
+                {
+                    await UpdateDatabaseFileSizeAsync(config);
+                }
+                
                 _databases[index] = config;
                 await SaveDatabasesAsync();
                 return true;
@@ -460,6 +471,80 @@ namespace FirebirdApi.Services
                    $"Password={config.Password};" +
                    $"Charset={config.Charset};" +
                    "Dialect=3;";
+        }
+
+        /// <summary>
+        /// Atualiza o tamanho do arquivo de todas as bases de dados
+        /// </summary>
+        public async Task<bool> UpdateAllDatabaseFileSizesAsync()
+        {
+            try
+            {
+                var databases = await GetAllDatabasesAsync();
+                bool hasChanges = false;
+
+                foreach (var database in databases)
+                {
+                    var oldSize = database.FileSizeBytes;
+                    await UpdateDatabaseFileSizeAsync(database);
+                    
+                    if (oldSize != database.FileSizeBytes)
+                    {
+                        hasChanges = true;
+                    }
+                }
+
+                if (hasChanges)
+                {
+                    await SaveDatabasesAsync();
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao atualizar tamanhos de todas as bases: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Atualiza o tamanho do arquivo da base de dados
+        /// </summary>
+        private async Task UpdateDatabaseFileSizeAsync(DatabaseConfig config)
+        {
+            try
+            {
+                // Verificar se o arquivo existe
+                if (File.Exists(config.Database))
+                {
+                    var fileInfo = new FileInfo(config.Database);
+                    config.FileSizeBytes = fileInfo.Length;
+                    config.LastSizeCheck = DateTime.UtcNow;
+                }
+                else
+                {
+                    // Se for uma conexão remota (não local), tentar obter informações via conexão
+                    if (config.Server != "localhost" && config.Server != "127.0.0.1")
+                    {
+                        // Para conexões remotas, não conseguimos obter o tamanho do arquivo diretamente
+                        // Podemos tentar obter informações via query do Firebird, mas isso é complexo
+                        config.FileSizeBytes = null;
+                        config.LastSizeCheck = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        config.FileSizeBytes = null;
+                        config.LastSizeCheck = DateTime.UtcNow;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao obter tamanho do arquivo da base {config.Name}: {ex.Message}");
+                config.FileSizeBytes = null;
+                config.LastSizeCheck = DateTime.UtcNow;
+            }
         }
 
         public async Task<DatabaseSnapshot> GenerateDatabaseSnapshotAsync(string id)

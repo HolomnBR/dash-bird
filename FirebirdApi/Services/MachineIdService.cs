@@ -48,7 +48,9 @@ namespace FirebirdApi.Services
             }
 
             // Se não conseguir obter, usar Environment.MachineName como fallback
-            return Environment.MachineName;
+            var fallbackId = Environment.MachineName;
+            Console.WriteLine($"⚠️ Usando MachineId fallback: {fallbackId}");
+            return fallbackId;
         }
 
         public void SetMachineId(string machineId)

@@ -144,6 +144,46 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Obter informações do sistema (para teste do SystemInfoService)
+        /// </summary>
+        [HttpGet("system-info")]
+        [SwaggerOperation(Summary = "Obter informações do sistema", Description = "Retorna informações detalhadas do sistema operacional e versão.")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetSystemInfo()
+        {
+            try
+            {
+                var systemInfoService = HttpContext.RequestServices.GetRequiredService<ISystemInfoService>();
+                
+                var systemInfo = new
+                {
+                    OperatingSystem = systemInfoService.GetOperatingSystem(),
+                    SystemVersion = systemInfoService.GetSystemVersion(),
+                    MachineName = systemInfoService.GetMachineName(),
+                    Architecture = systemInfoService.GetArchitecture(),
+                    Timestamp = DateTime.UtcNow
+                };
+
+                return Ok(new
+                {
+                    success = true,
+                    data = systemInfo,
+                    message = "Informações do sistema obtidas com sucesso"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter informações do sistema");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro ao obter informações do sistema: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
         /// Testa a conexão com uma base de dados específica
         /// </summary>
         [HttpGet("databases/{id}/test-connection")]
@@ -435,28 +475,39 @@ namespace FirebirdApi.Controllers
         /// <summary>
         /// Envia uma database local para o servidor cloud
         /// </summary>
-        private async Task SendDatabaseToCloudAsync(DatabaseConfig databaseConfig)
+        public async Task SendDatabaseToCloudAsync(DatabaseConfig databaseConfig)
         {
             try
             {
                 var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
                 var machineId = GetMachineId(); // Obter o MachineId correto
 
-                // Primeiro, verificar se o servidor cloud está disponível
-                try
+                // Primeiro, tentar enviar via gRPC se estiver conectado
+                var commandStreamService = HttpContext.RequestServices.GetRequiredService<ICommandStreamService>();
+                if (commandStreamService.IsConnected)
                 {
-                    var healthCheck = await _httpClient.GetAsync($"{cloudServerUrl}/status");
-                    if (!healthCheck.IsSuccessStatusCode)
+                    try
                     {
-                        _logger.LogWarning("Servidor cloud não está disponível. Pulando envio da database: {DatabaseName}", databaseConfig.Name);
-                        return;
+                        _logger.LogInformation("Enviando database via gRPC: {DatabaseName}", databaseConfig.Name);
+                        await commandStreamService.SendDatabaseSyncAsync("SINGLE_DATABASE", "DATABASE_CREATED", new List<DatabaseConfig> { databaseConfig });
+                        _logger.LogInformation("✅ Database enviada via gRPC com sucesso: {DatabaseName}", databaseConfig.Name);
+                        return; // Sucesso via gRPC, não precisa tentar HTTP
+                    }
+                    catch (Exception grpcEx)
+                    {
+                        _logger.LogWarning("⚠️ Falha ao enviar via gRPC, tentando HTTP: {Error}", grpcEx.Message);
                     }
                 }
-                catch
-                {
-                    _logger.LogWarning("Não foi possível conectar ao servidor cloud. Pulando envio da database: {DatabaseName}", databaseConfig.Name);
-                    return;
-                }
+
+                // Fallback para HTTP se gRPC não estiver disponível
+                _logger.LogInformation("Enviando database via HTTP: {DatabaseName} -> {CloudUrl}", databaseConfig.Name, cloudServerUrl);
+
+
+
+                // Obter informações do sistema
+                var systemInfoService = HttpContext.RequestServices.GetRequiredService<ISystemInfoService>();
+                var operatingSystem = systemInfoService.GetOperatingSystem();
+                var systemVersion = systemInfoService.GetSystemVersion();
 
                 var request = new
                 {
@@ -467,10 +518,13 @@ namespace FirebirdApi.Controllers
                     User = databaseConfig.Username,
                     Password = databaseConfig.Password,
                     Port = databaseConfig.Port,
-                    Charset = databaseConfig.Charset
+                    Charset = databaseConfig.Charset,
+                    FileSizeBytes = databaseConfig.FileSizeBytes,
+                    LastSizeCheck = databaseConfig.LastSizeCheck,
+                    OperatingSystem = operatingSystem,
+                    SystemVersion = systemVersion,
+                    SyncReason = "DATABASE_CREATED"
                 };
-
-                _logger.LogInformation("Enviando database para o cloud: {DatabaseName} -> {CloudUrl}", databaseConfig.Name, cloudServerUrl);
 
                 var response = await _httpClient.PostAsJsonAsync(
                     $"{cloudServerUrl}/api/DatabaseConfig/register-database", 
@@ -480,28 +534,30 @@ namespace FirebirdApi.Controllers
                 if (response.IsSuccessStatusCode)
                 {
                     var result = await response.Content.ReadFromJsonAsync<object>();
-                    _logger.LogInformation("Database enviada para o cloud com sucesso: {DatabaseName}", databaseConfig.Name);
+                    _logger.LogInformation("✅ Database enviada para o cloud via HTTP com sucesso: {DatabaseName} (Tamanho: {FileSize})", 
+                        databaseConfig.Name, 
+                        databaseConfig.FileSizeBytes.HasValue ? FormatFileSize(databaseConfig.FileSizeBytes.Value) : "N/A");
                 }
                 else
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("Falha ao enviar database para o cloud: {StatusCode} - {Error}", 
+                    _logger.LogWarning("⚠️ Falha ao enviar database para o cloud via HTTP: {StatusCode} - {Error}", 
                         response.StatusCode, errorContent);
                 }
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning("Erro de conexão ao enviar database para o cloud: {DatabaseName} - {Error}", 
+                _logger.LogWarning("⚠️ Erro de conexão ao enviar database para o cloud: {DatabaseName} - {Error}", 
                     databaseConfig.Name, ex.Message);
             }
             catch (TaskCanceledException ex)
             {
-                _logger.LogWarning("Timeout ao enviar database para o cloud: {DatabaseName} - {Error}", 
+                _logger.LogWarning("⚠️ Timeout ao enviar database para o cloud: {DatabaseName} - {Error}", 
                     databaseConfig.Name, ex.Message);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro inesperado ao enviar database para o cloud: {DatabaseName}", databaseConfig.Name);
+                _logger.LogError(ex, "❌ Erro inesperado ao enviar database para o cloud: {DatabaseName}", databaseConfig.Name);
             }
         }
 
@@ -558,7 +614,7 @@ namespace FirebirdApi.Controllers
         [HttpPost("sync-all-databases")]
         [SwaggerOperation(
             Summary = "Sincronizar todas as databases com o cloud",
-            Description = "Envia todas as databases locais para o servidor cloud."
+            Description = "Envia todas as databases locais para o servidor cloud via gRPC (preferido) ou HTTP (fallback)."
         )]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -569,6 +625,51 @@ namespace FirebirdApi.Controllers
                 var databases = await _configService.GetAllDatabasesAsync();
                 var results = new List<object>();
 
+                if (!databases.Any())
+                {
+                    return Ok(new { 
+                        success = true, 
+                        data = results, 
+                        message = "Nenhuma database local encontrada para sincronizar." 
+                    });
+                }
+
+                // Primeiro, tentar sincronização via gRPC se estiver conectado
+                var commandStreamService = HttpContext.RequestServices.GetRequiredService<ICommandStreamService>();
+                if (commandStreamService.IsConnected)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Sincronizando {Count} databases via gRPC", databases.Count);
+                        await commandStreamService.SendDatabaseSyncAsync("FULL_SYNC", "MANUAL_SYNC", databases);
+                        
+                        // Se chegou até aqui, a sincronização via gRPC foi bem-sucedida
+                        foreach (var database in databases)
+                        {
+                            results.Add(new { 
+                                databaseId = database.Id, 
+                                name = database.Name, 
+                                status = "success",
+                                method = "gRPC"
+                            });
+                        }
+
+                        return Ok(new { 
+                            success = true, 
+                            data = results, 
+                            message = $"Sincronização via gRPC concluída. {databases.Count} databases processadas.",
+                            method = "gRPC"
+                        });
+                    }
+                    catch (Exception grpcEx)
+                    {
+                        _logger.LogWarning("⚠️ Falha na sincronização via gRPC, tentando HTTP: {Error}", grpcEx.Message);
+                    }
+                }
+
+                // Fallback para HTTP se gRPC não estiver disponível
+                _logger.LogInformation("Sincronizando {Count} databases via HTTP (fallback)", databases.Count);
+
                 foreach (var database in databases)
                 {
                     try
@@ -577,7 +678,8 @@ namespace FirebirdApi.Controllers
                         results.Add(new { 
                             databaseId = database.Id, 
                             name = database.Name, 
-                            status = "success" 
+                            status = "success",
+                            method = "HTTP"
                         });
                     }
                     catch (Exception ex)
@@ -586,15 +688,18 @@ namespace FirebirdApi.Controllers
                             databaseId = database.Id, 
                             name = database.Name, 
                             status = "error", 
-                            error = ex.Message 
+                            error = ex.Message,
+                            method = "HTTP"
                         });
                     }
                 }
 
+                var successCount = results.Count(r => r.GetType().GetProperty("status")?.GetValue(r)?.ToString() == "success");
                 return Ok(new { 
                     success = true, 
                     data = results, 
-                    message = $"Sincronização concluída. {results.Count(r => r.GetType().GetProperty("status")?.GetValue(r)?.ToString() == "success")} databases processadas." 
+                    message = $"Sincronização via HTTP concluída. {successCount}/{databases.Count} databases processadas.",
+                    method = "HTTP"
                 });
             }
             catch (Exception ex)
@@ -609,6 +714,22 @@ namespace FirebirdApi.Controllers
         private string GetMachineId()
         {
             return _machineIdService.GetMachineId();
+        }
+
+        /// <summary>
+        /// Formata o tamanho do arquivo em formato legível
+        /// </summary>
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return $"{len:0.##} {sizes[order]}";
         }
     }
 

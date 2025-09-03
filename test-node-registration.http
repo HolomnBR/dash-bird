@@ -1,0 +1,17 @@
+### Testar registro de nó com dados do sistema
+POST http://localhost:8000/api/Sync/register-node
+Content-Type: application/json
+
+{
+  "nodeId": "test-node-123",
+  "name": "Test Node",
+  "machineName": "DESKTOP-TEST",
+  "machineId": "test-machine-456",
+  "ipAddress": "127.0.0.1",
+  "port": 8000,
+  "version": "2.1.3",
+  "operatingSystem": "Windows 11 Pro"
+}
+
+### Verificar nós registrados no servidor cloud
+GET https://localhost:7001/api/DesktopNode/nodes

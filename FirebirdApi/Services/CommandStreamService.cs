@@ -76,7 +76,7 @@ namespace FirebirdApi.Services
             await StopStreamingAsync();
         }
 
-        public async Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null)
+        public async Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null, string? version = null, string? operatingSystem = null)
         {
             try
             {
@@ -126,20 +126,23 @@ namespace FirebirdApi.Services
                 LastConnectedAt = DateTime.UtcNow;
                 LastSeenAt = DateTime.UtcNow;
 
-                // Enviar primeira mensagem com connection_id, node_id, name e machineName
+                // Enviar primeira mensagem com connection_id, node_id, name, machineName e informações do sistema
                 var firstMessage = new ClientToServerMessage
                 {
                     ConnectionId = connectionId,
                     NodeId = nodeId ?? string.Empty,
                     MachineId = machineId,
                     Name = name ?? string.Empty,
-                    MachineName = machineName ?? string.Empty
+                    MachineName = machineName ?? string.Empty,
+                    Version = version ?? string.Empty,
+                    OperatingSystem = operatingSystem ?? string.Empty,
+                    UserId = authToken ?? string.Empty // Incluir userId (token de autenticação)
                 };
                 
                 await _stream.RequestStream.WriteAsync(firstMessage);
                 
-                _logger.LogInformation("📤 Primeira mensagem gRPC enviada: ConnectionId={ConnectionId}, NodeId={NodeId}, MachineId={MachineId}, Name={Name}, MachineName={MachineName}", 
-                    connectionId, nodeId ?? "n/a", machineId, name ?? "n/a", machineName ?? "n/a");
+                _logger.LogInformation("📤 Primeira mensagem gRPC enviada: ConnectionId={ConnectionId}, NodeId={NodeId}, MachineId={MachineId}, Name={Name}, MachineName={MachineName}, Version={Version}, OperatingSystem={OperatingSystem}, UserId={UserId}", 
+                    connectionId, nodeId ?? "n/a", machineId, name ?? "n/a", machineName ?? "n/a", version ?? "n/a", operatingSystem ?? "n/a", authToken != null ? "AUTHENTICATED" : "ANONYMOUS");
 
                 _logger.LogInformation("✅ Conexão gRPC estabelecida com ID: {ConnectionId}, MachineId: {MachineId}, UserId: {UserId}", 
                     connectionId, machineId, authToken != null ? "AUTHENTICATED" : "ANONYMOUS");
@@ -235,6 +238,112 @@ namespace FirebirdApi.Services
         }
 
         /// <summary>
+        /// Envia dados de sincronização de databases via gRPC
+        /// </summary>
+        public async Task SendDatabaseSyncAsync(string syncType, string syncReason, List<Models.DatabaseConfig> databases)
+        {
+            if (!IsConnected || _stream == null)
+            {
+                _logger.LogWarning("Tentativa de enviar sincronização de databases sem conexão ativa");
+                throw new InvalidOperationException("Streaming gRPC não está conectado");
+            }
+
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var systemInfoService = scope.ServiceProvider.GetRequiredService<ISystemInfoService>();
+
+                _logger.LogInformation("🔄 Preparando envio de {Count} databases via gRPC: {SyncType} - {SyncReason}", 
+                    databases.Count, syncType, syncReason);
+
+                // Converter para formato gRPC
+                var databaseSyncData = new DatabaseSyncData
+                {
+                    SyncType = syncType,
+                    SyncReason = syncReason,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                foreach (var db in databases)
+                {
+                    var grpcDatabase = new DatabaseConfig
+                    {
+                        Id = db.Id,
+                        Name = db.Name,
+                        Server = db.Server,
+                        Database = db.Database,
+                        Username = db.Username,
+                        Password = db.Password,
+                        Port = db.Port,
+                        Charset = db.Charset,
+                        FileSizeBytes = db.FileSizeBytes ?? 0,
+                        LastSizeCheck = db.LastSizeCheck.HasValue ? ((DateTimeOffset)db.LastSizeCheck.Value).ToUnixTimeMilliseconds() : 0,
+                        CreatedAt = ((DateTimeOffset)db.CreatedAt).ToUnixTimeMilliseconds(),
+                        IsActive = db.IsActive,
+                        DesktopNodeId = CurrentConnectionId ?? string.Empty // Vincular database ao nó atual usando o ID real do nó
+                    };
+
+                    databaseSyncData.Databases.Add(grpcDatabase);
+                    
+                    _logger.LogInformation("📋 Database preparada para envio: {Name} (ID: {Id}, Tamanho: {FileSize})", 
+                        db.Name, db.Id, db.FileSizeBytes.HasValue ? FormatFileSize(db.FileSizeBytes.Value) : "N/A");
+                }
+
+                // Enviar dados de sincronização via gRPC
+                var message = new ClientToServerMessage
+                {
+                    DatabaseSync = databaseSyncData,
+                    NodeId = CurrentConnectionId ?? string.Empty,
+                    MachineId = CurrentMachineId ?? string.Empty,
+                    Name = string.Empty,
+                    MachineName = string.Empty,
+                    Version = systemInfoService.GetSystemVersion(),
+                    OperatingSystem = systemInfoService.GetOperatingSystem(),
+                    UserId = CurrentUserId ?? string.Empty
+                };
+
+                // Verificar se o stream está disponível antes de escrever
+                if (_stream?.RequestStream != null)
+                {
+                    await _stream.RequestStream.WriteAsync(message);
+                    _logger.LogInformation("📤 Mensagem gRPC enviada com sucesso para {Count} databases", databases.Count);
+                }
+                else
+                {
+                    _logger.LogError("❌ RequestStream não está disponível para envio de sincronização");
+                    throw new InvalidOperationException("RequestStream não está disponível");
+                }
+
+                // Atualizar timestamp de última atividade
+                LastSeenAt = DateTime.UtcNow;
+
+                _logger.LogInformation("✅ Dados de sincronização de databases enviados via gRPC com sucesso: {Count} databases, tipo: {SyncType}", 
+                    databases.Count, syncType);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao enviar sincronização de databases via gRPC: {Error}", ex.Message);
+                throw; // Re-throw para que o SyncController possa capturar e tentar HTTP
+            }
+        }
+
+        /// <summary>
+        /// Formata o tamanho do arquivo em formato legível
+        /// </summary>
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return $"{len:0.##} {sizes[order]}";
+        }
+
+        /// <summary>
         /// Obtém status detalhado da conexão gRPC
         /// </summary>
         public object GetConnectionStatus()
@@ -318,6 +427,12 @@ namespace FirebirdApi.Services
                     case "GET_DATABASE_STATUS":
                         response = await GetDatabaseStatusAsync();
                         break;
+                    case "GET_DATABASES":
+                        response = await GetDatabasesAsync();
+                        break;
+                    case "SYNC_DATABASES":
+                        response = await HandleDatabaseSyncRequestAsync(commandEvent);
+                        break;
                     case "PING":
                         response = new { message = "pong", timestamp = DateTime.UtcNow };
                         break;
@@ -379,6 +494,139 @@ namespace FirebirdApi.Services
                 return new
                 {
                     connected = false,
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> GetDatabasesAsync()
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var databaseConfigService = scope.ServiceProvider.GetRequiredService<IDatabaseConfigService>();
+                
+                var databases = await databaseConfigService.GetAllDatabasesAsync();
+                
+                return new
+                {
+                    databases = databases.Select(db => new
+                    {
+                        id = db.Id,
+                        name = db.Name,
+                        server = db.Server,
+                        database = db.Database,
+                        username = db.Username,
+                        port = db.Port,
+                        charset = db.Charset,
+                        fileSizeBytes = db.FileSizeBytes,
+                        lastSizeCheck = db.LastSizeCheck,
+                        createdAt = db.CreatedAt,
+                        isActive = db.IsActive
+                    }).ToList(),
+                    count = databases.Count,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                return new
+                {
+                    databases = new List<object>(),
+                    count = 0,
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> HandleDatabaseSyncRequestAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                _logger.LogInformation("Processando solicitação de sincronização de databases: {CommandId}", commandEvent.CommandId);
+
+                using var scope = _serviceProvider.CreateScope();
+                var databaseConfigService = scope.ServiceProvider.GetRequiredService<IDatabaseConfigService>();
+                var systemInfoService = scope.ServiceProvider.GetRequiredService<ISystemInfoService>();
+                
+                // Obter todas as databases locais
+                var databases = await databaseConfigService.GetAllDatabasesAsync();
+                
+                // Atualizar tamanhos dos arquivos
+                await databaseConfigService.UpdateAllDatabaseFileSizesAsync();
+                
+                // Converter para formato gRPC
+                var databaseSyncData = new DatabaseSyncData
+                {
+                    SyncType = "FULL_SYNC",
+                    SyncReason = "SERVER_REQUESTED",
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                foreach (var db in databases)
+                {
+                    databaseSyncData.Databases.Add(new DatabaseConfig
+                    {
+                        Id = db.Id,
+                        Name = db.Name,
+                        Server = db.Server,
+                        Database = db.Database,
+                        Username = db.Username,
+                        Password = db.Password,
+                        Port = db.Port,
+                        Charset = db.Charset,
+                        FileSizeBytes = db.FileSizeBytes ?? 0,
+                        LastSizeCheck = db.LastSizeCheck.HasValue ? ((DateTimeOffset)db.LastSizeCheck.Value).ToUnixTimeMilliseconds() : 0,
+                        CreatedAt = ((DateTimeOffset)db.CreatedAt).ToUnixTimeMilliseconds(),
+                        IsActive = db.IsActive,
+                        DesktopNodeId = CurrentConnectionId ?? string.Empty // Vincular database ao nó atual usando o ID real do nó
+                    });
+                }
+
+                // Enviar dados de sincronização via gRPC
+                if (_stream?.RequestStream != null)
+                {
+                    await _stream.RequestStream.WriteAsync(new ClientToServerMessage
+                    {
+                        DatabaseSync = databaseSyncData,
+                        NodeId = CurrentConnectionId ?? string.Empty,
+                        MachineId = CurrentMachineId ?? string.Empty,
+                        Name = string.Empty,
+                        MachineName = string.Empty,
+                        Version = systemInfoService.GetSystemVersion(),
+                        OperatingSystem = systemInfoService.GetOperatingSystem(),
+                        UserId = CurrentUserId ?? string.Empty
+                    });
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ RequestStream não está disponível para envio de sincronização (HandleDatabaseSyncRequestAsync)");
+                    return new
+                    {
+                        success = false,
+                        error = "RequestStream não disponível",
+                        timestamp = DateTime.UtcNow
+                    };
+                }
+
+                _logger.LogInformation("Dados de sincronização enviados via gRPC: {Count} databases", databases.Count);
+
+                return new
+                {
+                    success = true,
+                    message = "Dados de sincronização enviados via gRPC",
+                    databasesCount = databases.Count,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao processar solicitação de sincronização de databases");
+                return new
+                {
+                    success = false,
                     error = ex.Message,
                     timestamp = DateTime.UtcNow
                 };
@@ -455,7 +703,7 @@ namespace FirebirdApi.Services
                     var connectionId = Guid.NewGuid().ToString();
                     var authToken = await GetCurrentUserTokenAsync();
 
-                    await StartStreamingAsync(connectionId, machineId, authToken, null, null, null);
+                    await StartStreamingAsync(connectionId, machineId, authToken, null, null, null, null, null);
                     
                     _logger.LogInformation("Reconexão bem-sucedida na tentativa {Attempt}", _reconnectAttempts);
                     _reconnectAttempts = 0; // Reset contador em caso de sucesso
@@ -502,7 +750,7 @@ namespace FirebirdApi.Services
                 var connectionId = Guid.NewGuid().ToString();
                 var authToken = await GetCurrentUserTokenAsync();
 
-                await StartStreamingAsync(connectionId, machineId, authToken, null, null, null);
+                await StartStreamingAsync(connectionId, machineId, authToken, null, null, null, null, null);
                 
                 _logger.LogInformation("Reconexão com token armazenado bem-sucedida");
                 _reconnectAttempts = 0; // Reset contador

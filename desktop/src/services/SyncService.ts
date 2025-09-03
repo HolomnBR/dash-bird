@@ -3,7 +3,7 @@ import { machineId } from 'node-machine-id'
 
 export interface TableSyncData {
   tableName: string
-  data: any[]
+  data: unknown[]
 }
 
 export interface SyncStatus {
@@ -37,13 +37,11 @@ export interface DesktopNode {
 }
 
 export class SyncService {
-  // private readonly serverBaseUrl: string
   private machineId: string = ''
   private syncInterval?: ReturnType<typeof setInterval>
   private isInitialSyncCompleted = false
 
-  constructor(_serverBaseUrl: string = 'https://localhost:7001') {
-    // this.serverBaseUrl = serverBaseUrl
+  constructor() {
     this.initializeMachineId()
   }
 
@@ -52,32 +50,24 @@ export class SyncService {
   }
 
   /**
-   * Registra o nó desktop no servidor
+   * Registra o nó desktop no servidor via Electron
    */
   async registerDesktopNode(databasePath?: string): Promise<DesktopNode> {
     try {
-      const response = await api.request<{ success: boolean; data: DesktopNode }>(
-        'POST',
-        '/api/DesktopNode/register',
-        {
-          name: 'Unknown',
-          machineId: this.machineId,
-          ipAddress: await this.getLocalIpAddress(),
-          port: 8000,
-          databasePath,
-          version: '1.0.0',
-          operatingSystem: 'win32'
-        }
-      )
-
-      if (response.success) {
-        console.log('Nó desktop registrado com sucesso:', response.data.name)
-        return response.data
+      console.log('🔄 Registrando nó desktop via Electron com machineId:', this.machineId)
+      console.log('📁 DatabasePath fornecido:', databasePath)
+      
+      // Chamar o Electron para registrar o nó (que já tem as informações corretas)
+      const result = await window.system.registerNode(databasePath)
+      
+      if (result.success && result.data) {
+        console.log('Nó desktop registrado com sucesso via Electron:', result.data.name)
+        return result.data
       } else {
-        throw new Error('Falha ao registrar nó desktop')
+        throw new Error(result.error || 'Falha ao registrar nó desktop via Electron')
       }
     } catch (error) {
-      console.error('Erro ao registrar nó desktop:', error)
+      console.error('Erro ao registrar nó desktop via Electron:', error)
       throw error
     }
   }
@@ -231,19 +221,7 @@ export class SyncService {
     }
   }
 
-  /**
-   * Obtém endereço IP local
-   */
-  private async getLocalIpAddress(): Promise<string> {
-    try {
-      // Em um ambiente Electron, você pode usar APIs nativas para obter o IP
-      // Por simplicidade, retornamos localhost
-      return '127.0.0.1'
-    } catch (error) {
-      console.error('Erro ao obter IP local:', error)
-      return '127.0.0.1'
-    }
-  }
+
 
   /**
    * Verifica se a sincronização inicial foi concluída

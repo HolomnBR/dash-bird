@@ -17,12 +17,43 @@ message ClientToServerMessage {
   oneof payload {
     string connection_id = 1; // Usado para a primeira mensagem de registro
     string json_response = 2; // Usado para responder aos comandos do servidor
+    DatabaseSyncData database_sync = 3; // Usado para sincronizar bases de dados
   }
   // Campos adicionais para identificação do nó
-  string node_id = 3;     // ID do nó local
-  string machine_id = 4;  // ID da máquina
-  string name = 5;        // Nome/alias do nó
-  string machine_name = 6; // Nome da máquina (ex: DESKTOP-78ROEFC)
+  string node_id = 4;     // ID do nó local
+  string machine_id = 5;  // ID da máquina
+  string name = 6;        // Nome/alias do nó
+  string machine_name = 7; // Nome da máquina (ex: DESKTOP-78ROEFC)
+  string version = 8;     // Versão do sistema/aplicação
+  string operating_system = 9; // Sistema operacional
+  string user_id = 10;    // ID do usuário (token de autenticação ou null para anônimo)
+}
+
+// Dados de sincronização de base de dados
+message DatabaseSyncData {
+  string sync_type = 1; // Tipo de sincronização: "FULL_SYNC", "INCREMENTAL", "SINGLE_DATABASE"
+  string database_id = 2; // ID da base específica (opcional para FULL_SYNC)
+  repeated DatabaseConfig databases = 3; // Lista de bases para sincronizar
+  string sync_reason = 4; // Motivo da sincronização
+  int64 timestamp = 5; // Timestamp da sincronização
+}
+
+// Configuração de base de dados
+message DatabaseConfig {
+  string id = 1;
+  string name = 2;
+  string server = 3;
+  string database = 4;
+  string username = 5;
+  string password = 6;
+  int32 port = 7;
+  string charset = 8;
+  int64 file_size_bytes = 9;
+  int64 last_size_check = 10;
+  int64 created_at = 11;
+  bool is_active = 12;
+  string desktop_node_id = 13; // ID do nó desktop que possui esta database
+  string user_id = 14; // ID do usuário que possui esta database
 }
 
 // Mensagem enviada do Servidor para o Cliente
@@ -30,4 +61,13 @@ message ServerToClientMessage {
   string command_text = 1; // O comando que o cliente deve executar
   string command_id = 2;   // ID único do comando para rastreamento
   string metadata = 3;     // Metadados adicionais (JSON)
+  DatabaseSyncRequest database_sync_request = 4; // Solicitação de sincronização de bases
+}
+
+// Solicitação de sincronização de bases de dados
+message DatabaseSyncRequest {
+  string sync_type = 1; // Tipo: "FULL_SYNC", "INCREMENTAL", "SINGLE_DATABASE"
+  string database_id = 2; // ID específico (opcional)
+  string reason = 3; // Motivo da solicitação
+  int64 timestamp = 4; // Timestamp da solicitação
 }

@@ -24,6 +24,18 @@ namespace FirebirdApi.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         /// <summary>Indica se a configuração está ativa (soft delete).</summary>
         public bool IsActive { get; set; } = true;
+        /// <summary>Tamanho do arquivo da base de dados em bytes.</summary>
+        public long? FileSizeBytes { get; set; }
+        /// <summary>Data da última verificação do tamanho do arquivo.</summary>
+        public DateTime? LastSizeCheck { get; set; }
+        /// <summary>ID do nó desktop que possui esta database.</summary>
+        public string? DesktopNodeId { get; set; }
+        /// <summary>Referência para o nó desktop (navegação).</summary>
+        public object? DesktopNode { get; set; }
+        /// <summary>ID do usuário que possui esta database.</summary>
+        public string? UserId { get; set; }
+        /// <summary>Referência para o usuário (navegação).</summary>
+        public object? User { get; set; }
     }
 
     /// <summary>

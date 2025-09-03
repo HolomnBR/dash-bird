@@ -4,9 +4,10 @@ namespace FirebirdApi.Services
 {
     public interface ICommandStreamService
     {
-        Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null);
+        Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null, string? version = null, string? operatingSystem = null);
         Task StopStreamingAsync();
         Task SendResponseAsync(string commandId, object response);
+        Task SendDatabaseSyncAsync(string syncType, string syncReason, List<Models.DatabaseConfig> databases);
         Task TryReconnectWithStoredTokenAsync();
         object GetConnectionStatus();
         bool IsConnected { get; }
