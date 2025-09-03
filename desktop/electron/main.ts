@@ -18,6 +18,9 @@ const argv = process.argv.slice(1)
 const shouldOpenDevTools = argv.includes('--devtools') || argv.includes('--debug') || argv.includes('-d') || process.env.OPEN_DEVTOOLS === '1'
 const shouldDisableGpu = argv.includes('--disable-gpu') || argv.includes('--safe-mode') || process.env.DISABLE_GPU === '1' || process.env.SAFE_MODE === '1'
 
+// Controle para evitar registros duplicados do node
+let nodeRegistrationAttempted = false
+
 // Configure paths and Chromium switches as early as possible (before app ready)
 try {
   const userDataPath = join(app.getPath('appData'), 'Dash Bird')
@@ -116,6 +119,128 @@ function getOrCreateNodeConfig(): NodeConfig {
   return (changed ? (store.set('nodeConfig', cfg), cfg) : cfg) as NodeConfig
 }
 
+// Função para obter usuário logado via IPC
+async function getLoggedUser(): Promise<{ id: string; name: string; email: string } | null> {
+  try {
+    if (!mainWindow) return null
+    
+    // Enviar mensagem para o renderer obter dados do usuário
+    const userData = await mainWindow.webContents.executeJavaScript(`
+      (() => {
+        try {
+          const token = localStorage.getItem('auth_token')
+          const userData = localStorage.getItem('user_data')
+          
+          if (token && userData) {
+            const user = JSON.parse(userData)
+            return user
+          }
+          return null
+        } catch (error) {
+          console.error('Erro ao obter usuário logado:', error)
+          return null
+        }
+      })()
+    `)
+    
+    return userData
+  } catch (error) {
+    console.error('❌ Erro ao obter usuário logado via IPC:', error)
+    return null
+  }
+}
+
+// Função unificada para registrar o node e iniciar streaming (MÉTODO OTIMIZADO)
+async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: string): Promise<void> {
+  // Evitar registros duplicados
+  if (nodeRegistrationAttempted) {
+    console.log('🔄 Registro do node já foi tentado nesta sessão, pulando...')
+    return
+  }
+  
+  nodeRegistrationAttempted = true
+  
+  try {
+    const apiUrl = 'http://localhost:8000'
+    
+    // Obter token de autenticação se disponível
+    let authToken: string | undefined
+    if (userId) {
+      try {
+        const user = await getLoggedUser()
+        if (user) {
+          // Obter o token real do localStorage
+          const token = await mainWindow?.webContents.executeJavaScript(`
+            localStorage.getItem('auth_token')
+          `)
+          authToken = token || undefined
+        }
+      } catch (error) {
+        console.warn('⚠️ Não foi possível obter token de autenticação:', error)
+      }
+    }
+    
+    // NOVO: Registro unificado - uma única chamada que faz tudo
+    const nodeRegistrationData = {
+      nodeId: nodeConfig.nodeId, // Usar o nodeId do Electron como connectionId
+      name: nodeConfig.alias || nodeConfig.machineName || `Node-${nodeConfig.nodeId.slice(0, 8)}`,
+      machineName: nodeConfig.machineName, // Incluir machineName explicitamente
+      machineId: nodeConfig.machineId,
+      ipAddress: '::1',
+      port: 5000,
+      databasePath: null,
+      version: '1.0.0',
+      operatingSystem: process.platform
+    }
+    
+    console.log('🔄 Registrando node unificado (registro + streaming):', nodeRegistrationData)
+    
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 segundos timeout
+    
+    const response = await fetch(`${apiUrl}/api/Sync/register-node`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+      },
+      body: JSON.stringify(nodeRegistrationData),
+      signal: controller.signal
+    })
+    
+    clearTimeout(timeoutId)
+    
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Node registrado e streaming iniciado com sucesso:', result)
+      
+      // Verificar se o streaming está realmente conectado
+      if (result.data?.isConnected) {
+        console.log('🎉 Nó totalmente conectado e operacional!')
+      } else {
+        console.warn('⚠️ Nó registrado mas streaming pode não estar ativo')
+      }
+    } else {
+      const errorText = await response.text()
+      console.warn('⚠️ Falha ao registrar node unificado:', response.status, errorText)
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        console.warn('⚠️ Timeout ao registrar node unificado (15s)')
+      } else if ('code' in error && (error as { code: string }).code === 'ECONNREFUSED') {
+        console.warn('⚠️ API não está rodando em http://localhost:8000')
+      } else {
+        console.error('❌ Erro ao registrar node unificado:', error)
+      }
+    } else {
+      console.error('❌ Erro desconhecido ao registrar node unificado:', error)
+    }
+    // Resetar flag em caso de erro para permitir nova tentativa
+    nodeRegistrationAttempted = false
+  }
+}
+
 // Register all IPC handlers before creating window
 console.log('🔧 Registrando handlers IPC...')
 
@@ -147,7 +272,19 @@ ipcMain.handle('nodeConfig:get', async () => {
   if (!cfg.machineId || cfg.machineId === 'unknown') { cfg.machineId = info.machineId; changed = true }
   if (!cfg.machineName || cfg.machineName === 'unknown') { cfg.machineName = info.deviceName; changed = true }
   if (changed) store.set('nodeConfig', cfg)
+  
   console.log('✅ Handler nodeConfig:get retornando:', cfg)
+  
+  // Registrar o node e iniciar streaming DEPOIS de retornar a configuração
+  setImmediate(async () => {
+    try {
+      const user = await getLoggedUser()
+      await registerNodeAndStartStreaming(cfg, user?.id)
+    } catch (error) {
+      console.error('❌ Erro ao registrar node e iniciar streaming:', error)
+    }
+  })
+  
   return cfg
 })
 

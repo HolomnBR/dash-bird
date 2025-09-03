@@ -30,6 +30,10 @@ namespace FirebirdApi.Services
 
         public bool IsConnected { get; private set; }
         public string? CurrentConnectionId { get; private set; }
+        public string? CurrentMachineId { get; private set; }
+        public string? CurrentUserId { get; private set; }
+        public DateTime? LastConnectedAt { get; private set; }
+        public DateTime? LastSeenAt { get; private set; }
         public ChannelReader<CommandReceivedEventArgs> CommandReceived => _commandReader;
         
         // Configurações de reconexão
@@ -59,42 +63,10 @@ namespace FirebirdApi.Services
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Iniciando CommandStreamService...");
+            _logger.LogInformation("CommandStreamService inicializado - aguardando comando para iniciar streaming...");
             
-            // Aguardar um pouco para garantir que outros serviços estejam prontos
-            await Task.Delay(2000, cancellationToken);
-            
-            try
-            {
-                var machineId = _machineIdService.GetMachineId();
-                var connectionId = Guid.NewGuid().ToString();
-                
-                // Tentar obter token de autenticação se disponível
-                string? authToken = null;
-                try
-                {
-                    // Verificar se há um usuário logado e obter o token
-                    authToken = await GetCurrentUserTokenAsync();
-                    if (!string.IsNullOrEmpty(authToken))
-                    {
-                        _logger.LogInformation("Token de autenticação obtido com sucesso");
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Nenhum usuário logado, conectando como anônimo");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Não foi possível obter token de autenticação: {Error}", ex.Message);
-                }
-                
-                await StartStreamingAsync(connectionId, machineId, authToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Erro ao iniciar streaming automático");
-            }
+            // Não iniciar automaticamente - aguardar comando explícito
+            // O streaming será iniciado via endpoint /api/Streaming/start-streaming
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
@@ -104,7 +76,7 @@ namespace FirebirdApi.Services
             await StopStreamingAsync();
         }
 
-        public async Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null)
+        public async Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null)
         {
             try
             {
@@ -148,15 +120,29 @@ namespace FirebirdApi.Services
                 _stream = _client.CommandStream(headers: headers, cancellationToken: _cancellationTokenSource.Token);
 
                 CurrentConnectionId = connectionId;
+                CurrentMachineId = machineId;
+                CurrentUserId = authToken; // Armazenar token para referência
                 IsConnected = true;
+                LastConnectedAt = DateTime.UtcNow;
+                LastSeenAt = DateTime.UtcNow;
 
-                // Enviar primeira mensagem com connection_id
-                await _stream.RequestStream.WriteAsync(new ClientToServerMessage
+                // Enviar primeira mensagem com connection_id, node_id, name e machineName
+                var firstMessage = new ClientToServerMessage
                 {
-                    ConnectionId = connectionId
-                });
+                    ConnectionId = connectionId,
+                    NodeId = nodeId ?? string.Empty,
+                    MachineId = machineId,
+                    Name = name ?? string.Empty,
+                    MachineName = machineName ?? string.Empty
+                };
+                
+                await _stream.RequestStream.WriteAsync(firstMessage);
+                
+                _logger.LogInformation("📤 Primeira mensagem gRPC enviada: ConnectionId={ConnectionId}, NodeId={NodeId}, MachineId={MachineId}, Name={Name}, MachineName={MachineName}", 
+                    connectionId, nodeId ?? "n/a", machineId, name ?? "n/a", machineName ?? "n/a");
 
-                _logger.LogInformation("Conexão estabelecida com ID: {ConnectionId}", connectionId);
+                _logger.LogInformation("✅ Conexão gRPC estabelecida com ID: {ConnectionId}, MachineId: {MachineId}, UserId: {UserId}", 
+                    connectionId, machineId, authToken != null ? "AUTHENTICATED" : "ANONYMOUS");
 
                 // Iniciar task para escutar comandos
                 _streamingTask = Task.Run(async () => await ListenForCommandsAsync(_cancellationTokenSource.Token));
@@ -176,6 +162,8 @@ namespace FirebirdApi.Services
             {
                 IsConnected = false;
                 CurrentConnectionId = null;
+                CurrentMachineId = null;
+                CurrentUserId = null;
 
                 if (_stream != null)
                 {
@@ -235,12 +223,35 @@ namespace FirebirdApi.Services
                     JsonResponse = responseJson
                 });
 
-                _logger.LogInformation("Resposta enviada para comando {CommandId}", commandId);
+                // Atualizar timestamp de última atividade
+                LastSeenAt = DateTime.UtcNow;
+
+                _logger.LogInformation("📤 Resposta enviada para comando {CommandId}", commandId);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao enviar resposta para comando {CommandId}", commandId);
             }
+        }
+
+        /// <summary>
+        /// Obtém status detalhado da conexão gRPC
+        /// </summary>
+        public object GetConnectionStatus()
+        {
+            return new
+            {
+                isConnected = IsConnected,
+                connectionId = CurrentConnectionId,
+                machineId = CurrentMachineId,
+                userId = CurrentUserId != null ? "AUTHENTICATED" : "ANONYMOUS",
+                lastConnectedAt = LastConnectedAt,
+                lastSeenAt = LastSeenAt,
+                reconnectAttempts = _reconnectAttempts,
+                maxReconnectAttempts = _maxReconnectAttempts,
+                shouldReconnect = _shouldReconnect,
+                timestamp = DateTime.UtcNow
+            };
         }
 
         private async Task ListenForCommandsAsync(CancellationToken cancellationToken)
@@ -249,7 +260,10 @@ namespace FirebirdApi.Services
             {
                 await foreach (var serverMessage in _stream!.ResponseStream.ReadAllAsync(cancellationToken))
                 {
-                    _logger.LogInformation("Comando recebido: {CommandText} (ID: {CommandId})", 
+                    // Atualizar timestamp de última atividade
+                    LastSeenAt = DateTime.UtcNow;
+                    
+                    _logger.LogInformation("📨 Comando recebido: {CommandText} (ID: {CommandId})", 
                         serverMessage.CommandText, serverMessage.CommandId);
 
                     // Criar evento para notificar o host
@@ -441,7 +455,7 @@ namespace FirebirdApi.Services
                     var connectionId = Guid.NewGuid().ToString();
                     var authToken = await GetCurrentUserTokenAsync();
 
-                    await StartStreamingAsync(connectionId, machineId, authToken);
+                    await StartStreamingAsync(connectionId, machineId, authToken, null, null, null);
                     
                     _logger.LogInformation("Reconexão bem-sucedida na tentativa {Attempt}", _reconnectAttempts);
                     _reconnectAttempts = 0; // Reset contador em caso de sucesso
@@ -488,7 +502,7 @@ namespace FirebirdApi.Services
                 var connectionId = Guid.NewGuid().ToString();
                 var authToken = await GetCurrentUserTokenAsync();
 
-                await StartStreamingAsync(connectionId, machineId, authToken);
+                await StartStreamingAsync(connectionId, machineId, authToken, null, null, null);
                 
                 _logger.LogInformation("Reconexão com token armazenado bem-sucedida");
                 _reconnectAttempts = 0; // Reset contador

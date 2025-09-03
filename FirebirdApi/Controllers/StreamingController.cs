@@ -47,7 +47,10 @@ namespace FirebirdApi.Controllers
                 var connectionId = request.ConnectionId ?? Guid.NewGuid().ToString();
                 var machineId = request.MachineId ?? Environment.MachineName;
                 
-                await _commandStreamService.StartStreamingAsync(connectionId, machineId, request.AuthToken);
+                await _commandStreamService.StartStreamingAsync(connectionId, machineId, request.AuthToken, request.NodeId);
+                
+                _logger.LogInformation("🚀 Streaming iniciado via API: ConnectionId={ConnectionId}, MachineId={MachineId}, AuthToken={HasToken}", 
+                    connectionId, machineId, !string.IsNullOrEmpty(request.AuthToken));
                 
                 return Ok(new
                 {
@@ -109,7 +112,7 @@ namespace FirebirdApi.Controllers
                 var connectionId = request.ConnectionId ?? Guid.NewGuid().ToString();
                 var machineId = request.MachineId ?? Environment.MachineName;
                 
-                await _commandStreamService.StartStreamingAsync(connectionId, machineId, request.AuthToken);
+                await _commandStreamService.StartStreamingAsync(connectionId, machineId, request.AuthToken, request.NodeId);
                 
                 return Ok(new
                 {
@@ -132,5 +135,6 @@ namespace FirebirdApi.Controllers
         public string? ConnectionId { get; set; }
         public string? MachineId { get; set; }
         public string? AuthToken { get; set; }
+        public string? NodeId { get; set; }
     }
 }

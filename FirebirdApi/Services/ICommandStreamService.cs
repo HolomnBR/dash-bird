@@ -4,12 +4,17 @@ namespace FirebirdApi.Services
 {
     public interface ICommandStreamService
     {
-        Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null);
+        Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null);
         Task StopStreamingAsync();
         Task SendResponseAsync(string commandId, object response);
         Task TryReconnectWithStoredTokenAsync();
+        object GetConnectionStatus();
         bool IsConnected { get; }
         string? CurrentConnectionId { get; }
+        string? CurrentMachineId { get; }
+        string? CurrentUserId { get; }
+        DateTime? LastConnectedAt { get; }
+        DateTime? LastSeenAt { get; }
         ChannelReader<CommandReceivedEventArgs> CommandReceived { get; }
     }
 

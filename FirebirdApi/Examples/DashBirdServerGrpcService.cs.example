@@ -1,0 +1,340 @@
+// EXEMPLO: Implementação do servidor gRPC no DashBirdServer
+// Este arquivo é apenas um exemplo de como implementar o servidor gRPC
+// no projeto DashBirdServer (servidor cloud)
+// 
+// IMPORTANTE: Este arquivo NÃO deve ser compilado no projeto FirebirdAPI
+// É apenas um exemplo para ser copiado para o projeto DashBirdServer
+
+using FirebirdApi.Protos;
+using Grpc.Core;
+using Microsoft.Extensions.Logging;
+
+namespace DashBirdServer.Services
+{
+    /// <summary>
+    /// Implementação do serviço gRPC para registro de nós no DashBirdServer
+    /// Este serviço deve ser implementado no projeto DashBirdServer (servidor cloud)
+    /// </summary>
+    public class NodeRegistrationGrpcService : NodeRegistrationService.NodeRegistrationServiceBase
+    {
+        private readonly ILogger<NodeRegistrationGrpcService> _logger;
+        private readonly INodeRepository _nodeRepository;
+        private readonly IAuthService _authService;
+
+        public NodeRegistrationGrpcService(
+            ILogger<NodeRegistrationGrpcService> logger,
+            INodeRepository nodeRepository,
+            IAuthService authService)
+        {
+            _logger = logger;
+            _nodeRepository = nodeRepository;
+            _authService = authService;
+        }
+
+        public override async Task<RegisterNodeResponse> RegisterNode(
+            RegisterNodeRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Registrando nó via gRPC: {MachineId}", request.MachineId);
+
+                // Validar token de autenticação se fornecido
+                if (!string.IsNullOrEmpty(request.AuthToken))
+                {
+                    var isValidToken = await _authService.ValidateTokenAsync(request.AuthToken);
+                    if (!isValidToken)
+                    {
+                        return new RegisterNodeResponse
+                        {
+                            Success = false,
+                            Message = "Token de autenticação inválido"
+                        };
+                    }
+                }
+
+                // Criar nó no banco de dados
+                var node = new DesktopNode
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Name = request.Name,
+                    MachineId = request.MachineId,
+                    IpAddress = request.IpAddress,
+                    Port = request.Port,
+                    DatabasePath = request.DatabasePath,
+                    Version = request.Version,
+                    OperatingSystem = request.OperatingSystem,
+                    UserId = string.IsNullOrEmpty(request.AuthToken) ? null : "extracted-from-token", // Se não há token = anônimo
+                    CreatedAt = DateTime.UtcNow,
+                    LastSeen = DateTime.UtcNow,
+                    IsActive = true
+                };
+
+                await _nodeRepository.CreateAsync(node);
+
+                // Gerar token de acesso
+                var accessToken = await _authService.GenerateAccessTokenAsync(node.Id);
+                var expiresAt = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+
+                _logger.LogInformation("Nó registrado com sucesso via gRPC: {NodeId}", node.Id);
+
+                return new RegisterNodeResponse
+                {
+                    Success = true,
+                    Message = "Nó registrado com sucesso",
+                    NodeId = node.Id,
+                    AccessToken = accessToken,
+                    ExpiresAt = expiresAt
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao registrar nó via gRPC");
+                return new RegisterNodeResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}"
+                };
+            }
+        }
+
+
+
+        public override async Task<StartInitialSyncResponse> StartInitialSync(
+            StartInitialSyncRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Iniciando sincronização inicial via gRPC: {DesktopNodeId}", request.DesktopNodeId);
+
+                var operationId = Guid.NewGuid().ToString();
+                
+                // Implementar lógica de sincronização inicial
+                // ...
+
+                return new StartInitialSyncResponse
+                {
+                    Success = true,
+                    Message = "Sincronização inicial iniciada",
+                    OperationId = operationId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao iniciar sincronização inicial via gRPC");
+                return new StartInitialSyncResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}"
+                };
+            }
+        }
+
+        public override async Task<SendSyncBatchResponse> SendSyncBatch(
+            SendSyncBatchRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Processando lote de sincronização via gRPC: {ItemsCount} itens", request.DataBatch.Count);
+
+                // Implementar lógica de processamento de lote
+                // ...
+
+                return new SendSyncBatchResponse
+                {
+                    Success = true,
+                    Message = "Lote processado com sucesso",
+                    ItemsProcessed = request.DataBatch.Count
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao processar lote de sincronização via gRPC");
+                return new SendSyncBatchResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}",
+                    ItemsProcessed = 0
+                };
+            }
+        }
+
+        public override async Task<CompleteInitialSyncResponse> CompleteInitialSync(
+            CompleteInitialSyncRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Completando sincronização inicial via gRPC: {OperationId}", request.OperationId);
+
+                // Implementar lógica de conclusão de sincronização
+                // ...
+
+                return new CompleteInitialSyncResponse
+                {
+                    Success = true,
+                    Message = "Sincronização inicial completada"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao completar sincronização inicial via gRPC");
+                return new CompleteInitialSyncResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}"
+                };
+            }
+        }
+
+        public override async Task<SyncDatabasesResponse> SyncDatabases(
+            SyncDatabasesRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Sincronizando databases via gRPC: {DesktopNodeId}", request.DesktopNodeId);
+
+                // Implementar lógica de sincronização de databases
+                // ...
+
+                var results = new List<DatabaseSyncResult>();
+
+                return new SyncDatabasesResponse
+                {
+                    Success = true,
+                    Message = "Databases sincronizadas com sucesso",
+                    Results = { results }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao sincronizar databases via gRPC");
+                return new SyncDatabasesResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}",
+                    Results = { }
+                };
+            }
+        }
+
+        public override async Task<PullDataResponse> PullData(
+            PullDataRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Buscando dados via gRPC: {DesktopNodeId}", request.DesktopNodeId);
+
+                // Implementar lógica de busca de dados
+                // ...
+
+                var data = new List<SyncDataItem>();
+
+                return new PullDataResponse
+                {
+                    Success = true,
+                    Message = "Dados obtidos com sucesso",
+                    Data = { data },
+                    LastSyncTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao buscar dados via gRPC");
+                return new PullDataResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}",
+                    Data = { },
+                    LastSyncTimestamp = 0
+                };
+            }
+        }
+
+        /// <summary>
+        /// Vincular nó anônimo a um usuário autenticado
+        /// </summary>
+        public override async Task<LinkNodeToUserResponse> LinkNodeToUser(
+            LinkNodeToUserRequest request, 
+            ServerCallContext context)
+        {
+            try
+            {
+                _logger.LogInformation("Vinculando nó a usuário via gRPC: {NodeId}", request.NodeId);
+
+                // Validar token de autenticação
+                var isValidToken = await _authService.ValidateTokenAsync(request.AuthToken);
+                if (!isValidToken)
+                {
+                    return new LinkNodeToUserResponse
+                    {
+                        Success = false,
+                        Message = "Token de autenticação inválido"
+                    };
+                }
+
+                // Extrair userId do token
+                var userId = "extracted-from-token"; // Implementar extração do userId do JWT
+
+                // Atualizar nó com userId
+                await _nodeRepository.UpdateNodeUserIdAsync(request.NodeId, userId);
+
+                _logger.LogInformation("Nó {NodeId} vinculado ao usuário {UserId} com sucesso", request.NodeId, userId);
+
+                return new LinkNodeToUserResponse
+                {
+                    Success = true,
+                    Message = "Nó vinculado ao usuário com sucesso",
+                    NodeId = request.NodeId,
+                    UserId = userId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao vincular nó ao usuário via gRPC");
+                return new LinkNodeToUserResponse
+                {
+                    Success = false,
+                    Message = $"Erro interno: {ex.Message}"
+                };
+            }
+        }
+    }
+
+    // Interfaces e modelos que devem ser implementados no DashBirdServer
+    public interface INodeRepository
+    {
+        Task CreateAsync(DesktopNode node);
+        Task UpdateNodeUserIdAsync(string nodeId, string userId);
+    }
+
+    public interface IAuthService
+    {
+        Task<bool> ValidateTokenAsync(string token);
+        Task<string> GenerateAccessTokenAsync(string nodeId);
+        Task<string> GenerateAnonymousTokenAsync(string nodeId);
+    }
+
+    public class DesktopNode
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string MachineId { get; set; } = string.Empty;
+        public string IpAddress { get; set; } = string.Empty;
+        public int Port { get; set; }
+        public string? DatabasePath { get; set; }
+        public string? Version { get; set; }
+        public string? OperatingSystem { get; set; }
+        public string? UserId { get; set; } // Se null = anônimo, se preenchido = autenticado
+        public DateTime CreatedAt { get; set; }
+        public DateTime LastSeen { get; set; }
+        public bool IsActive { get; set; }
+        
+        // Propriedade calculada
+        public bool IsAnonymous => string.IsNullOrEmpty(UserId);
+    }
+}

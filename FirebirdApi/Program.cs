@@ -89,6 +89,8 @@ builder.Services.AddHttpContextAccessor();
 // Registrar o serviço de autenticação (deve vir depois dos HttpClients e IHttpContextAccessor)
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+
+
 // Registrar o serviço de streaming de comandos como HostedService
 builder.Services.AddSingleton<ICommandStreamService, CommandStreamService>();
 builder.Services.AddHostedService<CommandStreamService>(provider => 

@@ -18,6 +18,11 @@ message ClientToServerMessage {
     string connection_id = 1; // Usado para a primeira mensagem de registro
     string json_response = 2; // Usado para responder aos comandos do servidor
   }
+  // Campos adicionais para identificação do nó
+  string node_id = 3;     // ID do nó local
+  string machine_id = 4;  // ID da máquina
+  string name = 5;        // Nome/alias do nó
+  string machine_name = 6; // Nome da máquina (ex: DESKTOP-78ROEFC)
 }
 
 // Mensagem enviada do Servidor para o Cliente

@@ -163,9 +163,6 @@ export function useSync({
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Registrar nó desktop
-        await registerNode()
-        
         // Carregar status de sincronização
         await loadSyncStatus()
         
@@ -189,7 +186,7 @@ export function useSync({
     return () => {
       stopPeriodicSync()
     }
-  }, [databaseId, autoStart, registerNode, loadSyncStatus, startInitialSync, isInitialSyncCompleted, startPeriodicSync, stopPeriodicSync])
+  }, [databaseId, autoStart, loadSyncStatus, startInitialSync, isInitialSyncCompleted, startPeriodicSync, stopPeriodicSync])
 
   // Efeito para iniciar sincronização periódica quando inicial for concluída
   useEffect(() => {
