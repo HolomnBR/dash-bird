@@ -15,3 +15,4 @@ Content-Type: application/json
 
 ### Verificar nós registrados no servidor cloud
 GET https://localhost:7001/api/DesktopNode/nodes
+

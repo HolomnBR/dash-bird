@@ -475,7 +475,7 @@ namespace FirebirdApi.Controllers
         /// <summary>
         /// Envia uma database local para o servidor cloud
         /// </summary>
-        public async Task SendDatabaseToCloudAsync(DatabaseConfig databaseConfig)
+        private async Task SendDatabaseToCloudAsync(DatabaseConfig databaseConfig)
         {
             try
             {
