@@ -108,7 +108,7 @@ namespace FirebirdApi.Controllers
                 var dict = new Dictionary<string, object>();
                 foreach (DataColumn col in dt.Columns)
                 {
-                    dict[col.ColumnName] = row[col] == DBNull.Value ? null : row[col];
+                    dict[col.ColumnName] = row[col] == DBNull.Value ? null! : row[col];
                 }
                 rows.Add(dict);
             }

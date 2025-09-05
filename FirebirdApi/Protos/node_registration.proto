@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+option csharp_namespace = "FirebirdApi.Protos";
+
+package dashbird;
+
+// Serviço gRPC para registro e sincronização de nós
+service NodeRegistrationService {
+  // Registrar nó desktop autenticado
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  
+  // Registrar nó anônimo
+  rpc RegisterAnonymousNode(RegisterAnonymousNodeRequest) returns (RegisterAnonymousNodeResponse);
+  
+  // Iniciar sincronização inicial
+  rpc StartInitialSync(StartInitialSyncRequest) returns (StartInitialSyncResponse);
+  
+  // Enviar lote de dados
+  rpc SendSyncBatch(SendSyncBatchRequest) returns (SendSyncBatchResponse);
+  
+  // Completar sincronização inicial
+  rpc CompleteInitialSync(CompleteInitialSyncRequest) returns (CompleteInitialSyncResponse);
+  
+  // Sincronizar databases
+  rpc SyncDatabases(SyncDatabasesRequest) returns (SyncDatabasesResponse);
+  
+  // Buscar dados não sincronizados
+  rpc PullData(PullDataRequest) returns (PullDataResponse);
+}
+
+// Mensagens de requisição
+message RegisterNodeRequest {
+  string machine_id = 1;
+  string name = 2;
+  string machine_name = 3;
+  string ip_address = 4;
+  int32 port = 5;
+  string version = 6;
+  string operating_system = 7;
+  string database_path = 8;
+  string auth_token = 9; // JWT token para autenticação
+}
+
+message RegisterAnonymousNodeRequest {
+  string machine_id = 1;
+  string name = 2;
+  string machine_name = 3;
+  string ip_address = 4;
+  int32 port = 5;
+  string version = 6;
+  string operating_system = 7;
+  string database_path = 8;
+}
+
+message StartInitialSyncRequest {
+  string node_id = 1;
+  string database_id = 2;
+  int64 sync_timestamp = 3;
+}
+
+message SendSyncBatchRequest {
+  string node_id = 1;
+  string database_id = 2;
+  string table_name = 3;
+  repeated SyncDataItem data_items = 4;
+  int64 batch_timestamp = 5;
+}
+
+message CompleteInitialSyncRequest {
+  string node_id = 1;
+  string database_id = 2;
+  int64 sync_timestamp = 3;
+  int32 total_tables = 4;
+  int32 synced_tables = 5;
+}
+
+message SyncDatabasesRequest {
+  string node_id = 1;
+  repeated DatabaseInfo databases = 2;
+}
+
+message PullDataRequest {
+  string node_id = 1;
+  string database_id = 2;
+  int64 last_sync_timestamp = 3;
+  repeated string table_names = 4;
+}
+
+// Mensagens de resposta
+message RegisterNodeResponse {
+  bool success = 1;
+  string message = 2;
+  string node_id = 3;
+  string access_token = 4;
+  int64 expires_at = 5;
+}
+
+message RegisterAnonymousNodeResponse {
+  bool success = 1;
+  string message = 2;
+  string node_id = 3;
+  string anonymous_token = 4;
+  int64 expires_at = 5;
+}
+
+message StartInitialSyncResponse {
+  bool success = 1;
+  string message = 2;
+  string sync_id = 3;
+  int64 server_timestamp = 4;
+}
+
+message SendSyncBatchResponse {
+  bool success = 1;
+  string message = 2;
+  int32 processed_items = 3;
+  int32 failed_items = 4;
+  repeated string errors = 5;
+}
+
+message CompleteInitialSyncResponse {
+  bool success = 1;
+  string message = 2;
+  int64 server_timestamp = 3;
+  int32 total_processed = 4;
+}
+
+message SyncDatabasesResponse {
+  bool success = 1;
+  string message = 2;
+  int32 synced_databases = 3;
+  repeated string errors = 4;
+}
+
+message PullDataResponse {
+  bool success = 1;
+  string message = 2;
+  repeated SyncDataItem data_items = 3;
+  int64 server_timestamp = 4;
+  bool has_more_data = 5;
+}
+
+// Estruturas de dados
+message SyncDataItem {
+  string id = 1;
+  string table_name = 2;
+  string data = 3; // JSON string
+  string data_hash = 4;
+  int64 timestamp = 5;
+  string operation_type = 6; // INSERT, UPDATE, DELETE
+}
+
+message DatabaseInfo {
+  string id = 1;
+  string name = 2;
+  string server = 3;
+  string database = 4;
+  string user = 5;
+  int32 port = 6;
+  string charset = 7;
+  bool is_active = 8;
+}

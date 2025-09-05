@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { Button } from '../atoms/Button'
-import { CheckCircle, AlertCircle } from 'lucide-react'
+import { CheckCircle, AlertCircle, Settings } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 interface ConnectedNode {
   machineId: string
@@ -35,6 +36,7 @@ interface WindowWithApi {
 
 export function NodeManager() {
   const { isAuthenticated, token, bindCurrentNode, unbindNode } = useAuthContext()
+  const navigate = useNavigate()
   const [nodeConfig, setNodeConfig] = useState<{
     nodeId: string
     machineId: string
@@ -223,9 +225,23 @@ export function NodeManager() {
     if (nodeConfig && isAuthenticated && token && !loading) {
       console.log('🔄 Verificação automática de conexão do nó ao iniciar o app...')
       // Executar verificação após um pequeno delay para garantir que tudo foi carregado
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
+        // Primeiro, tentar registrar o nó se necessário
+        try {
+          console.log('🚀 Tentando registrar nó automaticamente...')
+          const registerResult = await window.system.registerNode()
+          if (registerResult.success) {
+            console.log('✅ Nó registrado automaticamente:', registerResult.data)
+          } else {
+            console.warn('⚠️ Falha ao registrar nó automaticamente:', registerResult.error)
+          }
+        } catch (error) {
+          console.error('❌ Erro ao registrar nó automaticamente:', error)
+        }
+        
+        // Depois verificar conexão
         checkNodeConnection(true) // Forçar verificação no servidor
-      }, 1000) // 1 segundo de delay
+      }, 2000) // 2 segundos de delay para garantir que a API esteja pronta
       
       return () => clearTimeout(timer)
     }
@@ -388,8 +404,23 @@ export function NodeManager() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Status do Nó</h3>
+      <div 
+        className="bg-white rounded-lg border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow"
+        onClick={() => navigate('/settings')}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Status do Nó</h3>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate('/settings')
+            }}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Configurações"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
         <p className="text-gray-500">Carregando informações...</p>
       </div>
     )
@@ -397,16 +428,46 @@ export function NodeManager() {
 
   if (!nodeConfig) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Status do Nó</h3>
+      <div 
+        className="bg-white rounded-lg border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow"
+        onClick={() => navigate('/settings')}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Status do Nó</h3>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate('/settings')
+            }}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Configurações"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
         <p className="text-gray-500">Erro ao carregar configuração do nó.</p>
       </div>
     )
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Status do Nó</h3>
+    <div 
+      className="bg-white rounded-lg border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow"
+      onClick={() => navigate('/settings')}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">Status do Nó</h3>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            navigate('/settings')
+          }}
+          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          title="Configurações"
+        >
+          <Settings size={20} />
+        </button>
+      </div>
       
       <div className="space-y-4">
         {/* Status de Conexão */}

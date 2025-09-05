@@ -1,5 +1,7 @@
 using FirebirdApi.Models;
+using FirebirdApi.Data;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace FirebirdApi.Services
 {
@@ -22,191 +24,232 @@ namespace FirebirdApi.Services
 
     public class DatabaseConfigService : IDatabaseConfigService
     {
-        private readonly string _baseConfigFilePath;
-        private readonly string _configFilePath;
-        private readonly List<DatabaseConfig> _databases;
-        private ProjectConfig _projectConfig;
+        private readonly LocalDbContext _context;
+        private readonly ILogger<DatabaseConfigService> _logger;
 
-        public DatabaseConfigService()
+        public DatabaseConfigService(LocalDbContext context, ILogger<DatabaseConfigService> logger)
         {
-            _baseConfigFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-            _configFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "database-configs.json");
-            _projectConfig = LoadProjectConfig();
-            _databases = LoadDatabases();
+            _context = context;
+            _logger = logger;
         }
 
-        private ProjectConfig LoadProjectConfig()
-        {
-            try
-            {
-                if (File.Exists(_baseConfigFilePath))
-                {
-                    var json = File.ReadAllText(_baseConfigFilePath);
-                    var config = JsonSerializer.Deserialize<ProjectConfig>(json);
-                    return config ?? new ProjectConfig();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao carregar configuração base: {ex.Message}");
-            }
-            return new ProjectConfig();
-        }
 
-        private List<DatabaseConfig> LoadDatabases()
-        {
-            var databases = new List<DatabaseConfig>();
-
-            // Primeiro, carregar do arquivo base (config.json)
-            if (_projectConfig.Databases.Any())
-            {
-                databases.AddRange(_projectConfig.Databases);
-            }
-
-            // Depois, carregar do arquivo dinâmico (database-configs.json)
-            try
-            {
-                if (File.Exists(_configFilePath))
-                {
-                    var json = File.ReadAllText(_configFilePath);
-                    var dynamicConfigs = JsonSerializer.Deserialize<List<DatabaseConfig>>(json);
-                    if (dynamicConfigs != null)
-                    {
-                        // Adicionar apenas configurações que não existem no arquivo base
-                        foreach (var config in dynamicConfigs)
-                        {
-                            if (!databases.Any(db => db.Id == config.Id))
-                            {
-                                databases.Add(config);
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao carregar configurações dinâmicas: {ex.Message}");
-            }
-
-            return databases;
-        }
-
-        private async Task SaveDatabasesAsync()
-        {
-            try
-            {
-                // Salvar apenas as configurações dinâmicas (não as do arquivo base)
-                var dynamicConfigs = _databases.Where(db => db.Id != "default").ToList();
-                var json = JsonSerializer.Serialize(dynamicConfigs, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(_configFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao salvar configurações: {ex.Message}");
-                throw;
-            }
-        }
 
         public async Task<List<DatabaseConfig>> GetAllDatabasesAsync()
         {
-            return await Task.FromResult(_databases.Where(db => db.IsActive).ToList());
+            try
+            {
+                var sqliteConfigs = await _context.DatabaseConfigs
+                    .Where(db => db.IsActive)
+                    .OrderBy(db => db.Name)
+                    .ToListAsync();
+
+                return sqliteConfigs.Select(MapToDatabaseConfig).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter configurações de banco");
+                return new List<DatabaseConfig>();
+            }
         }
 
         public async Task<DatabaseConfig?> GetDatabaseByIdAsync(string id)
         {
-            return await Task.FromResult(_databases.FirstOrDefault(db => db.Id == id && db.IsActive));
+            try
+            {
+                var sqliteConfig = await _context.DatabaseConfigs
+                    .FirstOrDefaultAsync(db => db.Id == id && db.IsActive);
+
+                return sqliteConfig != null ? MapToDatabaseConfig(sqliteConfig) : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter configuração de banco por ID");
+                return null;
+            }
         }
 
         public async Task<DatabaseConfig?> GetDefaultDatabaseAsync()
         {
-            var defaultId = _projectConfig.Settings.DefaultDatabaseId;
-            return await GetDatabaseByIdAsync(defaultId);
+            try
+            {
+                var settings = await _context.ProjectSettingsSqlite.FirstOrDefaultAsync();
+                if (settings?.DefaultDatabaseId != null)
+                {
+                    return await GetDatabaseByIdAsync(settings.DefaultDatabaseId);
+                }
+
+                // Se não há configuração padrão, retornar a primeira ativa
+                var firstConfig = await _context.DatabaseConfigs
+                    .Where(db => db.IsActive)
+                    .OrderBy(db => db.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                return firstConfig != null ? MapToDatabaseConfig(firstConfig) : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter banco padrão");
+                return null;
+            }
         }
 
         public async Task<bool> SetDefaultDatabaseAsync(string id)
         {
-            var database = await GetDatabaseByIdAsync(id);
-            if (database != null)
+            try
             {
-                _projectConfig.Settings.DefaultDatabaseId = id;
-                await SaveProjectConfigAsync();
+                var database = await GetDatabaseByIdAsync(id);
+                if (database == null)
+                {
+                    return false;
+                }
+
+                var settings = await _context.ProjectSettingsSqlite.FirstOrDefaultAsync();
+                if (settings == null)
+                {
+                    settings = new ProjectSettingsSqlite();
+                    _context.ProjectSettingsSqlite.Add(settings);
+                }
+
+                settings.DefaultDatabaseId = id;
+                settings.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
                 return true;
             }
-            return false;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao definir banco padrão");
+                return false;
+            }
         }
 
         public async Task<ProjectConfig> GetProjectConfigAsync()
         {
-            return await Task.FromResult(_projectConfig);
+            try
+            {
+                var settings = await _context.ProjectSettingsSqlite.FirstOrDefaultAsync();
+                if (settings == null)
+                {
+                    settings = new ProjectSettingsSqlite();
+                    _context.ProjectSettingsSqlite.Add(settings);
+                    await _context.SaveChangesAsync();
+                }
+
+                return new ProjectConfig
+                {
+                    Settings = new ProjectSettings
+                    {
+                        DefaultDatabaseId = settings.DefaultDatabaseId ?? "default"
+                    },
+                    Databases = await GetAllDatabasesAsync()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter configuração do projeto");
+                return new ProjectConfig();
+            }
         }
 
         public async Task<DatabaseConfig> AddDatabaseAsync(DatabaseConfig config)
         {
-            // Gerar GUID único se não for a base padrão
-            if (config.Id != "default")
+            try
             {
-                config.Id = Guid.NewGuid().ToString();
+                // Gerar GUID único se não for a base padrão
+                if (config.Id != "default")
+                {
+                    config.Id = Guid.NewGuid().ToString();
+                }
+                
+                config.CreatedAt = DateTime.UtcNow;
+                config.IsActive = true;
+
+                // Capturar tamanho do arquivo da base
+                await UpdateDatabaseFileSizeAsync(config);
+
+                var sqliteConfig = MapToDatabaseConfigSqlite(config);
+                
+                var existingConfig = await _context.DatabaseConfigs
+                    .FirstOrDefaultAsync(db => db.Id == config.Id);
+
+                if (existingConfig != null)
+                {
+                    // Atualizar a configuração existente
+                    _context.Entry(existingConfig).CurrentValues.SetValues(sqliteConfig);
+                }
+                else
+                {
+                    _context.DatabaseConfigs.Add(sqliteConfig);
+                }
+
+                await _context.SaveChangesAsync();
+                return config;
             }
-            
-            config.CreatedAt = DateTime.UtcNow;
-            config.IsActive = true;
-
-            // Capturar tamanho do arquivo da base
-            await UpdateDatabaseFileSizeAsync(config);
-
-            // Verificar se já existe uma configuração com o mesmo ID
-            var existingConfig = _databases.FirstOrDefault(db => db.Id == config.Id);
-            if (existingConfig != null)
+            catch (Exception ex)
             {
-                // Atualizar a configuração existente
-                var index = _databases.IndexOf(existingConfig);
-                _databases[index] = config;
+                _logger.LogError(ex, "Erro ao adicionar configuração de banco");
+                throw;
             }
-            else
-            {
-                _databases.Add(config);
-            }
-
-            await SaveDatabasesAsync();
-            return config;
         }
 
         public async Task<bool> RemoveDatabaseAsync(string id)
         {
-            // Não permitir remover a base padrão
-            if (id == "default")
+            try
             {
+                // Não permitir remover a base padrão
+                if (id == "default")
+                {
+                    return false;
+                }
+
+                var sqliteDatabase = await _context.DatabaseConfigs
+                    .FirstOrDefaultAsync(db => db.Id == id);
+
+                if (sqliteDatabase != null)
+                {
+                    sqliteDatabase.IsActive = false;
+                    await _context.SaveChangesAsync();
+                    return true;
+                }
+
                 return false;
             }
-
-            var database = _databases.FirstOrDefault(db => db.Id == id);
-            if (database != null)
+            catch (Exception ex)
             {
-                database.IsActive = false;
-                await SaveDatabasesAsync();
-                return true;
+                _logger.LogError(ex, "Erro ao remover configuração de banco");
+                return false;
             }
-            return false;
         }
 
         public async Task<bool> UpdateDatabaseAsync(DatabaseConfig config)
         {
-            var existingDatabase = _databases.FirstOrDefault(db => db.Id == config.Id);
-            if (existingDatabase != null)
+            try
             {
-                var index = _databases.IndexOf(existingDatabase);
-                
-                // Atualizar tamanho do arquivo se o caminho da base mudou
-                if (existingDatabase.Database != config.Database)
+                var existingSqliteDatabase = await _context.DatabaseConfigs
+                    .FirstOrDefaultAsync(db => db.Id == config.Id);
+
+                if (existingSqliteDatabase != null)
                 {
-                    await UpdateDatabaseFileSizeAsync(config);
+                    // Atualizar tamanho do arquivo se o caminho da base mudou
+                    if (existingSqliteDatabase.Database != config.Database)
+                    {
+                        await UpdateDatabaseFileSizeAsync(config);
+                    }
+
+                    var sqliteConfig = MapToDatabaseConfigSqlite(config);
+                    _context.Entry(existingSqliteDatabase).CurrentValues.SetValues(sqliteConfig);
+                    await _context.SaveChangesAsync();
+                    return true;
                 }
-                
-                _databases[index] = config;
-                await SaveDatabasesAsync();
-                return true;
+
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao atualizar configuração de banco");
+                return false;
+            }
         }
 
         public async Task<bool> TestConnectionAsync(string id)
@@ -439,18 +482,6 @@ namespace FirebirdApi.Services
 			return text;
 		}
 
-        private async Task SaveProjectConfigAsync()
-        {
-            try
-            {
-                var json = JsonSerializer.Serialize(_projectConfig, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(_baseConfigFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao salvar configuração do projeto: {ex.Message}");
-            }
-        }
 
         private string GetTableType(string type)
         {
@@ -480,30 +511,36 @@ namespace FirebirdApi.Services
         {
             try
             {
-                var databases = await GetAllDatabasesAsync();
+                var databases = await _context.DatabaseConfigs
+                    .Where(db => db.IsActive)
+                    .ToListAsync();
+
                 bool hasChanges = false;
 
                 foreach (var database in databases)
                 {
                     var oldSize = database.FileSizeBytes;
-                    await UpdateDatabaseFileSizeAsync(database);
+                    var config = MapToDatabaseConfig(database);
+                    await UpdateDatabaseFileSizeAsync(config);
                     
-                    if (oldSize != database.FileSizeBytes)
+                    if (oldSize != config.FileSizeBytes)
                     {
+                        database.FileSizeBytes = config.FileSizeBytes;
+                        database.LastSizeCheck = config.LastSizeCheck;
                         hasChanges = true;
                     }
                 }
 
                 if (hasChanges)
                 {
-                    await SaveDatabasesAsync();
+                    await _context.SaveChangesAsync();
                 }
 
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Erro ao atualizar tamanhos de todas as bases: {ex.Message}");
+                _logger.LogError(ex, "Erro ao atualizar tamanhos de todas as bases");
                 return false;
             }
         }
@@ -511,7 +548,7 @@ namespace FirebirdApi.Services
         /// <summary>
         /// Atualiza o tamanho do arquivo da base de dados
         /// </summary>
-        private async Task UpdateDatabaseFileSizeAsync(DatabaseConfig config)
+        private Task UpdateDatabaseFileSizeAsync(DatabaseConfig config)
         {
             try
             {
@@ -545,6 +582,8 @@ namespace FirebirdApi.Services
                 config.FileSizeBytes = null;
                 config.LastSizeCheck = DateTime.UtcNow;
             }
+            
+            return Task.CompletedTask;
         }
 
         public async Task<DatabaseSnapshot> GenerateDatabaseSnapshotAsync(string id)
@@ -555,9 +594,7 @@ namespace FirebirdApi.Services
 
             try
             {
-                using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
-                await connection.OpenAsync();
-
+                // Implementar geração de snapshot diretamente
                 var snapshot = new DatabaseSnapshot
                 {
                     DatabaseId = database.Id,
@@ -566,7 +603,7 @@ namespace FirebirdApi.Services
                     Tables = new List<TableFullInfo>()
                 };
 
-                // 1. Listar todas as tabelas
+                // Listar todas as tabelas
                 var tables = await GetTablesAsync(id);
                 
                 foreach (var table in tables)
@@ -585,14 +622,17 @@ namespace FirebirdApi.Services
 
                     try
                     {
-                        // 2. Recuperar schema da tabela
+                        // Recuperar schema da tabela
                         var tableSchemas = await GetTableSchemaAsync(id, new[] { table.TableName });
                         if (tableSchemas.Any())
                         {
                             tableFullInfo.Columns = tableSchemas.First().Columns;
                         }
 
-                        // 3. Contar quantidade de registros
+                        // Contar quantidade de registros
+                        using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+                        await connection.OpenAsync();
+                        
                         var countQuery = $"SELECT COUNT(*) FROM \"{table.TableName}\"";
                         using var countCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(countQuery, connection);
                         var recordCount = await countCmd.ExecuteScalarAsync();
@@ -601,7 +641,7 @@ namespace FirebirdApi.Services
                             tableFullInfo.RecordCount = Convert.ToInt64(recordCount);
                         }
 
-                        // 4. Pegar o lastId (procurar por colunas de chave primária ou colunas ID)
+                        // Pegar o lastId (procurar por colunas de chave primária ou colunas ID)
                         var pkColumns = await LoadPrimaryKeyColumnsAsync(connection, table.TableName);
                         if (pkColumns.Any())
                         {
@@ -646,7 +686,63 @@ namespace FirebirdApi.Services
                     snapshot.Tables.Add(tableFullInfo);
                 }
 
-                // 5. Salvar em JSON local
+                // Salvar no SQLite
+                var snapshotId = Guid.NewGuid().ToString();
+                var snapshotData = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+
+                var sqliteSnapshot = new DatabaseSnapshotSqlite
+                {
+                    Id = snapshotId,
+                    DatabaseId = database.Id,
+                    DatabaseName = database.Name,
+                    GeneratedAt = DateTime.UtcNow,
+                    SnapshotData = snapshotData,
+                    IsActive = true
+                };
+
+                _context.DatabaseSnapshots.Add(sqliteSnapshot);
+
+                // Salvar tabelas e colunas
+                foreach (var table in snapshot.Tables)
+                {
+                    var snapshotTable = new SnapshotTable
+                    {
+                        SnapshotId = snapshotId,
+                        TableName = table.TableName,
+                        Schema = table.Schema,
+                        TableType = table.TableType,
+                        Description = table.Description,
+                        RecordCount = table.RecordCount,
+                        LastId = table.LastId,
+                        GeneratedAt = table.GeneratedAt
+                    };
+
+                    _context.SnapshotTables.Add(snapshotTable);
+
+                    foreach (var column in table.Columns)
+                    {
+                        var snapshotColumn = new SnapshotTableColumn
+                        {
+                            SnapshotId = snapshotId,
+                            TableName = table.TableName,
+                            ColumnName = column.ColumnName,
+                            DataType = column.DataType,
+                            Length = column.Length,
+                            Precision = column.Precision,
+                            Scale = column.Scale,
+                            IsNullable = column.IsNullable,
+                            DefaultValue = column.Default,
+                            Description = column.Description,
+                            IsPrimaryKey = column.IsPrimaryKey
+                        };
+
+                        _context.SnapshotTableColumns.Add(snapshotColumn);
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                // Manter compatibilidade com arquivo JSON
                 var snapshotDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "snapshots");
                 Directory.CreateDirectory(snapshotDir);
                 
@@ -656,12 +752,61 @@ namespace FirebirdApi.Services
                 var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
                 await File.WriteAllTextAsync(filePath, json);
 
+                // Atualizar o caminho do arquivo no SQLite
+                sqliteSnapshot.FilePath = filePath;
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Snapshot gerado e salvo no SQLite: {SnapshotId}", snapshotId);
                 return snapshot;
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Erro ao gerar snapshot da base de dados");
                 throw new InvalidOperationException($"Erro ao gerar snapshot da base de dados: {ex.Message}", ex);
             }
         }
+
+        private DatabaseConfig MapToDatabaseConfig(DatabaseConfigSqlite sqliteConfig)
+        {
+            return new DatabaseConfig
+            {
+                Id = sqliteConfig.Id,
+                Name = sqliteConfig.Name,
+                Server = sqliteConfig.Server,
+                Database = sqliteConfig.Database,
+                Username = sqliteConfig.Username,
+                Password = sqliteConfig.Password,
+                Port = sqliteConfig.Port,
+                Charset = sqliteConfig.Charset,
+                CreatedAt = sqliteConfig.CreatedAt,
+                IsActive = sqliteConfig.IsActive,
+                FileSizeBytes = sqliteConfig.FileSizeBytes,
+                LastSizeCheck = sqliteConfig.LastSizeCheck,
+                DesktopNodeId = sqliteConfig.DesktopNodeId,
+                UserId = sqliteConfig.UserId
+            };
+        }
+
+        private DatabaseConfigSqlite MapToDatabaseConfigSqlite(DatabaseConfig config)
+        {
+            return new DatabaseConfigSqlite
+            {
+                Id = config.Id,
+                Name = config.Name,
+                Server = config.Server,
+                Database = config.Database,
+                Username = config.Username,
+                Password = config.Password,
+                Port = config.Port,
+                Charset = config.Charset,
+                CreatedAt = config.CreatedAt,
+                IsActive = config.IsActive,
+                FileSizeBytes = config.FileSizeBytes,
+                LastSizeCheck = config.LastSizeCheck,
+                DesktopNodeId = config.DesktopNodeId,
+                UserId = config.UserId
+            };
+        }
     }
 }
+

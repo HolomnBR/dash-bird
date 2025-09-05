@@ -9,13 +9,12 @@ using System.Threading.Channels;
 
 namespace FirebirdApi.Services
 {
-    public class CommandStreamService : ICommandStreamService, IHostedService, IDisposable
+    public class CommandStreamService : ICommandStreamService, IDisposable
     {
         private readonly ILogger<CommandStreamService> _logger;
         private readonly IConfiguration _configuration;
         private readonly IMachineIdService _machineIdService;
         private readonly IServiceProvider _serviceProvider;
-        private readonly ITokenStorageService _tokenStorageService;
         private readonly SemaphoreSlim _reconnectSemaphore = new(1, 1);
         private bool _disposed = false;
         
@@ -33,6 +32,9 @@ namespace FirebirdApi.Services
         public string? CurrentConnectionId { get; private set; }
         public string? CurrentMachineId { get; private set; }
         public string? CurrentUserId { get; private set; }
+        public string? RegisteredNodeId { get; private set; }
+        public string? NodeAccessToken { get; private set; }
+        public bool IsNodeRegistered { get; private set; }
         public DateTime? LastConnectedAt { get; private set; }
         public DateTime? LastSeenAt { get; private set; }
         public ChannelReader<CommandReceivedEventArgs> CommandReceived => _commandReader;
@@ -47,35 +49,21 @@ namespace FirebirdApi.Services
             ILogger<CommandStreamService> logger,
             IConfiguration configuration,
             IMachineIdService machineIdService,
-            IServiceProvider serviceProvider,
-            ITokenStorageService tokenStorageService)
+            IServiceProvider serviceProvider)
         {
             _logger = logger;
             _configuration = configuration;
             _machineIdService = machineIdService;
             _serviceProvider = serviceProvider;
-            _tokenStorageService = tokenStorageService;
             
             // Criar channel para comunicação com o host
             _commandChannel = Channel.CreateUnbounded<CommandReceivedEventArgs>();
             _commandWriter = _commandChannel.Writer;
             _commandReader = _commandChannel.Reader;
-        }
-
-        public async Task StartAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("CommandStreamService inicializado - aguardando comando para iniciar streaming...");
             
-            // Não iniciar automaticamente - aguardar comando explícito
-            // O streaming será iniciado via endpoint /api/Streaming/start-streaming
+            _logger.LogInformation("🔧 CommandStreamService construído e inicializado");
         }
 
-        public async Task StopAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("Parando CommandStreamService...");
-            _shouldReconnect = false; // Impedir reconexões automáticas
-            await StopStreamingAsync();
-        }
 
         public async Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null, string? version = null, string? operatingSystem = null)
         {
@@ -84,16 +72,23 @@ namespace FirebirdApi.Services
                 throw new ObjectDisposedException(nameof(CommandStreamService));
             }
 
+            var startTime = DateTime.UtcNow;
+            
             try
             {
+                _logger.LogInformation("🚀 Iniciando streaming gRPC: ConnectionId={ConnectionId}, MachineId={MachineId}", connectionId, machineId);
+                _logger.LogInformation("📋 Parâmetros completos - AuthToken: {HasToken}, NodeId: {NodeId}, Name: {Name}, MachineName: {MachineName}, Version: {Version}, OperatingSystem: {OperatingSystem}", 
+                    !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO", nodeId ?? "NULL", name ?? "NULL", machineName ?? "NULL", version ?? "NULL", operatingSystem ?? "NULL");
+                
                 if (IsConnected)
                 {
-                    _logger.LogWarning("Streaming já está ativo. Parando conexão anterior...");
+                    _logger.LogWarning("⚠️ Streaming já está ativo. Parando conexão anterior...");
                     await StopStreamingAsync();
+                    await Task.Delay(1000); // Aguardar um pouco antes de reconectar
                 }
 
                 var cloudServerUrl = _configuration["GrpcServer:Url"] ?? _configuration["CloudServer:Url"] ?? "https://localhost:7001";
-                _logger.LogInformation("Conectando ao servidor cloud: {CloudServerUrl}", cloudServerUrl);
+                _logger.LogInformation("🌐 Conectando ao servidor cloud: {CloudServerUrl}", cloudServerUrl);
 
                 // Configurar HttpClientHandler para lidar com certificados SSL
                 var httpHandler = new HttpClientHandler();
@@ -114,8 +109,10 @@ namespace FirebirdApi.Services
                     DisposeHttpClient = true
                 };
 
+                _logger.LogInformation("🔧 Criando canal gRPC...");
                 _channel = GrpcChannel.ForAddress(cloudServerUrl, channelOptions);
                 _client = new CommandService.CommandServiceClient(_channel);
+                _logger.LogInformation("✅ Canal gRPC criado com sucesso para: {CloudServerUrl}", cloudServerUrl);
 
                 // Configurar headers de autorização se disponível
                 var headers = new Metadata();
@@ -129,8 +126,19 @@ namespace FirebirdApi.Services
                     _logger.LogInformation("⚠️ Nenhum token de autenticação fornecido - conectando como anônimo");
                 }
 
+                _logger.LogInformation("📡 Estabelecendo stream gRPC...");
                 _cancellationTokenSource = new CancellationTokenSource();
-                _stream = _client.CommandStream(headers: headers, cancellationToken: _cancellationTokenSource.Token);
+                
+                try
+                {
+                    _stream = _client.CommandStream(headers: headers, cancellationToken: _cancellationTokenSource.Token);
+                    _logger.LogInformation("✅ Stream gRPC estabelecido com sucesso");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ ERRO ao estabelecer stream gRPC: {Error}", ex.Message);
+                    throw;
+                }
 
                 CurrentConnectionId = connectionId;
                 CurrentMachineId = machineId;
@@ -138,6 +146,9 @@ namespace FirebirdApi.Services
                 IsConnected = true;
                 LastConnectedAt = DateTime.UtcNow;
                 LastSeenAt = DateTime.UtcNow;
+
+
+                _logger.LogInformation("✅ Stream gRPC estabelecido com sucesso");
 
                 // Enviar primeira mensagem com connection_id, node_id, name, machineName e informações do sistema
                 var firstMessage = new ClientToServerMessage
@@ -152,7 +163,21 @@ namespace FirebirdApi.Services
                     UserId = authToken ?? string.Empty // Incluir userId (token de autenticação)
                 };
                 
-                await _stream.RequestStream.WriteAsync(firstMessage);
+                _logger.LogInformation("📤 Dados da primeira mensagem gRPC - ConnectionId: {ConnectionId}, NodeId: {NodeId}, MachineId: {MachineId}, Name: {Name}, MachineName: {MachineName}, Version: {Version}, OperatingSystem: {OperatingSystem}, UserId: {UserId}", 
+                    firstMessage.ConnectionId, firstMessage.NodeId, firstMessage.MachineId, firstMessage.Name, firstMessage.MachineName, firstMessage.Version, firstMessage.OperatingSystem, firstMessage.UserId);
+                
+                _logger.LogInformation("📤 Enviando primeira mensagem gRPC...");
+                
+                try
+                {
+                    await _stream.RequestStream.WriteAsync(firstMessage);
+                    _logger.LogInformation("✅ Primeira mensagem gRPC enviada com sucesso");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ ERRO ao enviar primeira mensagem gRPC: {Error}", ex.Message);
+                    throw;
+                }
                 
                 _logger.LogInformation("📤 Primeira mensagem gRPC enviada: ConnectionId={ConnectionId}, NodeId={NodeId}, MachineId={MachineId}, Name={Name}, MachineName={MachineName}, Version={Version}, OperatingSystem={OperatingSystem}, UserId={UserId}", 
                     connectionId, nodeId ?? "n/a", machineId, name ?? "n/a", machineName ?? "n/a", version ?? "n/a", operatingSystem ?? "n/a", authToken != null ? "AUTHENTICATED" : "ANONYMOUS");
@@ -161,13 +186,37 @@ namespace FirebirdApi.Services
                     connectionId, machineId, authToken != null ? "AUTHENTICATED" : "ANONYMOUS");
 
                 // Iniciar task para escutar comandos
+                _logger.LogInformation("👂 Iniciando task de escuta de comandos...");
                 _streamingTask = Task.Run(async () => await ListenForCommandsAsync(_cancellationTokenSource.Token));
+                
+                var duration = DateTime.UtcNow - startTime;
+                _logger.LogInformation("🎉 Streaming gRPC iniciado com sucesso em {Duration}ms", duration.TotalMilliseconds);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao iniciar streaming");
+                var duration = DateTime.UtcNow - startTime;
+                _logger.LogError(ex, "❌ Erro ao iniciar streaming gRPC após {Duration}ms: {Error}", duration.TotalMilliseconds, ex.Message);
+                
+                // Limpar estado em caso de erro
                 IsConnected = false;
                 CurrentConnectionId = null;
+                CurrentMachineId = null;
+                CurrentUserId = null;
+                
+                // Log específico para diferentes tipos de erro
+                if (ex.Message.Contains("Connection refused") || ex.Message.Contains("No connection could be made"))
+                {
+                    _logger.LogError("❌ Servidor cloud não está acessível ou não está rodando");
+                }
+                else if (ex.Message.Contains("SSL") || ex.Message.Contains("certificate"))
+                {
+                    _logger.LogError("❌ Erro de SSL/Certificado - Verifique a configuração de certificados");
+                }
+                else if (ex.Message.Contains("PermissionDenied") || ex.Message.Contains("403"))
+                {
+                    _logger.LogError("❌ Erro de permissão - Verifique se o token de autenticação é válido");
+                }
+                
                 throw;
             }
         }
@@ -323,6 +372,7 @@ namespace FirebirdApi.Services
             }
         }
 
+
         /// <summary>
         /// Verifica se o nó está devidamente registrado no servidor
         /// </summary>
@@ -330,32 +380,32 @@ namespace FirebirdApi.Services
         {
             if (!IsConnected || _stream == null)
             {
+                _logger.LogWarning("⚠️ Não é possível verificar registro: streaming não está conectado");
                 return false;
             }
 
             try
             {
-                // Enviar comando de ping para verificar se o nó está registrado
-                var pingMessage = new ClientToServerMessage
-                {
-                    ConnectionId = CurrentConnectionId ?? string.Empty,
-                    NodeId = CurrentConnectionId ?? string.Empty,
-                    MachineId = CurrentMachineId ?? string.Empty,
-                    Name = string.Empty,
-                    MachineName = string.Empty,
-                    Version = string.Empty,
-                    OperatingSystem = string.Empty,
-                    UserId = CurrentUserId ?? string.Empty,
-                    JsonResponse = JsonSerializer.Serialize(new { type = "PING", timestamp = DateTime.UtcNow })
-                };
-
-                await _stream.RequestStream.WriteAsync(pingMessage);
-                _logger.LogInformation("📡 Ping enviado para verificar registro do nó");
-                return true;
+                _logger.LogInformation("🔍 Verificando se nó está registrado no servidor cloud via gRPC...");
+                
+                // Usar o serviço de registro gRPC para verificar se o nó está registrado
+                var nodeId = RegisteredNodeId ?? CurrentConnectionId ?? string.Empty;
+                
+                using var scope = _serviceProvider.CreateScope();
+                var nodeRegistrationService = scope.ServiceProvider.GetRequiredService<INodeRegistrationGrpcService>();
+                var isRegistered = await nodeRegistrationService.IsNodeRegisteredAsync(nodeId);
+                
+                // Atualizar o status interno
+                IsNodeRegistered = isRegistered;
+                
+                _logger.LogInformation("📋 Status de registro do nó {NodeId}: {IsRegistered}", 
+                    nodeId, isRegistered ? "REGISTRADO" : "NÃO REGISTRADO");
+                
+                return isRegistered;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("⚠️ Erro ao verificar registro do nó: {Error}", ex.Message);
+                _logger.LogWarning("⚠️ Erro ao verificar registro do nó via gRPC: {Error}", ex.Message);
                 return false;
             }
         }
@@ -477,6 +527,9 @@ namespace FirebirdApi.Services
                 connectionId = CurrentConnectionId,
                 machineId = CurrentMachineId,
                 userId = CurrentUserId != null ? "AUTHENTICATED" : "ANONYMOUS",
+                registeredNodeId = RegisteredNodeId,
+                nodeAccessToken = NodeAccessToken != null ? "AVAILABLE" : "NOT_AVAILABLE",
+                isNodeRegistered = IsNodeRegistered,
                 lastConnectedAt = LastConnectedAt,
                 lastSeenAt = LastSeenAt,
                 reconnectAttempts = _reconnectAttempts,
@@ -596,11 +649,11 @@ namespace FirebirdApi.Services
             }
         }
 
-        private async Task<object> GetSystemInfoAsync()
+        private Task<object> GetSystemInfoAsync()
         {
             var machineId = _machineIdService.GetMachineId();
             
-            return new
+            return Task.FromResult<object>(new
             {
                 machineId = machineId,
                 os = Environment.OSVersion.ToString(),
@@ -608,7 +661,7 @@ namespace FirebirdApi.Services
                 processorCount = Environment.ProcessorCount,
                 workingSet = Environment.WorkingSet,
                 timestamp = DateTime.UtcNow
-            };
+            });
         }
 
         private async Task<object> GetDatabaseStatusAsync()
@@ -778,6 +831,7 @@ namespace FirebirdApi.Services
                 // Primeiro, tentar obter token do contexto HTTP atual (se disponível)
                 using var scope = _serviceProvider.CreateScope();
                 var httpContextAccessor = scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+                var tokenStorageService = scope.ServiceProvider.GetRequiredService<ITokenStorageService>();
                 
                 var httpContext = httpContextAccessor.HttpContext;
                 if (httpContext != null)
@@ -787,14 +841,14 @@ namespace FirebirdApi.Services
                     {
                         var token = authHeader.Substring("Bearer ".Length).Trim();
                         // Armazenar o token para uso futuro
-                        await _tokenStorageService.StoreTokenAsync(token);
+                        await tokenStorageService.StoreTokenAsync(token);
                         return token;
                     }
                 }
 
                 // Se não encontrou no contexto HTTP, tentar obter do armazenamento local
                 _logger.LogInformation("Token não encontrado no contexto HTTP, tentando obter de armazenamento local...");
-                var storedToken = await _tokenStorageService.GetStoredTokenAsync();
+                var storedToken = await tokenStorageService.GetStoredTokenAsync();
                 
                 if (!string.IsNullOrEmpty(storedToken))
                 {
@@ -875,7 +929,10 @@ namespace FirebirdApi.Services
                     return;
                 }
 
-                var hasToken = await _tokenStorageService.HasValidTokenAsync();
+                using var scope = _serviceProvider.CreateScope();
+                var tokenStorageService = scope.ServiceProvider.GetRequiredService<ITokenStorageService>();
+                
+                var hasToken = await tokenStorageService.HasValidTokenAsync();
                 if (!hasToken)
                 {
                     _logger.LogInformation("Nenhum token válido armazenado, não é possível reconectar");

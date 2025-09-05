@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { localStorageService } from '../services/LocalStorageService'
 
 interface User {
   id: string
@@ -28,8 +29,9 @@ export const useAuth = () => {
   useEffect(() => {
     const loadStoredAuth = async () => {
       try {
-        const token = localStorage.getItem('auth_token')
-        const userData = localStorage.getItem('user_data')
+        // Obter token do SQLite via API
+        const token = await localStorageService.getToken();
+        const userData = localStorage.getItem('user_data');
 
         if (token && userData) {
           // Validar token
@@ -43,10 +45,7 @@ export const useAuth = () => {
             })
           } else {
             // Token inválido, limpar todos os dados
-            localStorage.removeItem('auth_token')
-            localStorage.removeItem('user_data')
-            localStorage.removeItem('connected_nodes')
-            localStorage.removeItem('anonymous_token')
+            await localStorageService.clearToken();
             setAuthState({
               isAuthenticated: false,
               user: null,
@@ -60,10 +59,7 @@ export const useAuth = () => {
       } catch (error) {
         console.error('Erro ao carregar autenticação:', error)
         // Limpar todos os dados em caso de erro
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('user_data')
-        localStorage.removeItem('connected_nodes')
-        localStorage.removeItem('anonymous_token')
+        await localStorageService.clearToken();
         setAuthState({
           isAuthenticated: false,
           user: null,
@@ -83,8 +79,8 @@ export const useAuth = () => {
       if (result.success) {
         const { token, user } = result.data as { token: string; user: User }
         
-        // Armazenar no localStorage
-        localStorage.setItem('auth_token', token)
+        // Armazenar no SQLite via API e localStorage como backup
+        await localStorageService.saveToken(token, user.id, user.email);
         localStorage.setItem('user_data', JSON.stringify(user))
         
         setAuthState({
@@ -111,8 +107,8 @@ export const useAuth = () => {
       if (result.success) {
         const { token, user } = result.data as { token: string; user: User }
         
-        // Armazenar no localStorage
-        localStorage.setItem('auth_token', token)
+        // Armazenar no SQLite via API e localStorage como backup
+        await localStorageService.saveToken(token, user.id, user.email);
         localStorage.setItem('user_data', JSON.stringify(user))
         
         setAuthState({
@@ -142,10 +138,7 @@ export const useAuth = () => {
       console.error('Erro no logout:', error)
     } finally {
       // Limpar todos os dados locais relacionados à autenticação
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('user_data')
-      localStorage.removeItem('connected_nodes') // Limpar nós conectados
-      localStorage.removeItem('anonymous_token') // Limpar token anônimo se existir
+      await localStorageService.clearToken();
       
       // Atualizar estado imediatamente
       setAuthState({

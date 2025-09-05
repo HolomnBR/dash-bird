@@ -20,6 +20,7 @@ const shouldDisableGpu = argv.includes('--disable-gpu') || argv.includes('--safe
 
 // Controle para evitar registros duplicados do node
 let nodeRegistrationAttempted = false
+let nodeRegistrationInProgress = false
 
 // Configure paths and Chromium switches as early as possible (before app ready)
 try {
@@ -151,14 +152,14 @@ async function getLoggedUser(): Promise<{ id: string; name: string; email: strin
 }
 
 // Função unificada para registrar o node e iniciar streaming (MÉTODO OTIMIZADO)
-async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: string): Promise<void> {
-  // Evitar registros duplicados
-  if (nodeRegistrationAttempted) {
-    console.log('🔄 Registro do node já foi tentado nesta sessão, pulando...')
+async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: string, forceRegister: boolean = false): Promise<void> {
+  // Evitar registros duplicados ou em progresso (exceto se forçado)
+  if (!forceRegister && (nodeRegistrationAttempted || nodeRegistrationInProgress)) {
+    console.log('🔄 Registro do node já foi tentado ou está em progresso nesta sessão, pulando...')
     return
   }
   
-  nodeRegistrationAttempted = true
+  nodeRegistrationInProgress = true
   
   try {
     const apiUrl = 'http://localhost:8000'
@@ -180,7 +181,71 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
       }
     }
     
-    // NOVO: Registro unificado - uma única chamada que faz tudo
+    // PASSO 1: Verificar se já existe nó com mesmo nome e sistema
+    console.log('🔍 Verificando se já existe nó com mesmo nome e sistema...')
+    const checkExistingResponse = await fetch(`${apiUrl}/api/LocalNode/exists/${encodeURIComponent(nodeConfig.machineName)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+      }
+    })
+    
+    if (checkExistingResponse.ok) {
+      const existingResult = await checkExistingResponse.json()
+      if (existingResult.success && existingResult.data?.exists) {
+        console.log('✅ Nó já existe localmente, obtendo dados existentes...')
+        const getExistingResponse = await fetch(`${apiUrl}/api/LocalNode/by-machine/${encodeURIComponent(nodeConfig.machineName)}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+          }
+        })
+        
+        if (getExistingResponse.ok) {
+          const existingNode = await getExistingResponse.json()
+          console.log('📋 Nó existente encontrado localmente:', existingNode)
+          
+          // Mesmo com nó existente localmente, ainda precisa registrar no cloud
+          console.log('🔄 Nó existe localmente, mas ainda precisa registrar no cloud...')
+        }
+      }
+    }
+    
+    // PASSO 2: Registrar nó localmente primeiro
+    console.log('🔄 Registrando nó localmente...')
+    const localNodeData = {
+      machineName: nodeConfig.machineName,
+      operatingSystem: process.platform === 'win32' ? 'Windows 11 Pro' : 
+                      process.platform === 'darwin' ? 'macOS' : 
+                      process.platform === 'linux' ? 'Linux' : 'Unknown',
+      systemVersion: process.platform === 'win32' ? '11' : 
+                    process.platform === 'darwin' ? '14' : 
+                    process.platform === 'linux' ? 'Ubuntu 22.04' : 'Unknown',
+      architecture: process.arch,
+      ipAddress: '::1',
+      port: 8000
+    }
+    
+    const localNodeResponse = await fetch(`${apiUrl}/api/LocalNode/save-local-node`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+      },
+      body: JSON.stringify(localNodeData)
+    })
+    
+    if (!localNodeResponse.ok) {
+      throw new Error(`Erro ao registrar nó local: ${localNodeResponse.status}`)
+    }
+    
+    const localNodeResult = await localNodeResponse.json()
+    console.log('✅ Nó registrado localmente:', localNodeResult)
+    
+    // PASSO 3: Registrar no cloud (Sync)
+    console.log('🌐 Registrando nó no cloud...')
     const nodeRegistrationData = {
       nodeId: nodeConfig.nodeId, // Usar o nodeId do Electron como connectionId
       name: nodeConfig.alias || `Desktop Node (${nodeConfig.machineName})` || `Node-${nodeConfig.nodeId.slice(0, 8)}`,
@@ -195,11 +260,14 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
                       process.platform === 'linux' ? 'Linux' : 'Unknown'
     }
     
-    console.log('🔄 Registrando node unificado (registro + streaming):', nodeRegistrationData)
+    console.log('🔄 Registrando node no cloud (registro + streaming):', nodeRegistrationData)
+    console.log('🌐 Fazendo requisição para:', `${apiUrl}/api/Sync/register-node`)
+    console.log('🔑 AuthToken presente:', !!authToken)
     
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 segundos timeout
     
+    console.log('📤 Enviando requisição POST...')
     const response = await fetch(`${apiUrl}/api/Sync/register-node`, {
       method: 'POST',
       headers: {
@@ -212,34 +280,96 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     
     clearTimeout(timeoutId)
     
+    console.log('📥 Resposta recebida - Status:', response.status, response.statusText)
+    
     if (response.ok) {
-      const result = await response.json() as { success: boolean; data?: { isConnected?: boolean } }
-      console.log('✅ Node registrado e streaming iniciado com sucesso:', result)
+      const result = await response.json() as { 
+        success: boolean; 
+        data?: { 
+          isConnected?: boolean;
+          isNodeRegistered?: boolean;
+          cloudServerUrl?: string;
+          isCloudReachable?: boolean;
+          duration?: string;
+          registeredNodeId?: string;
+          nodeAccessToken?: string;
+        } 
+      }
+      console.log('✅ Node registrado no cloud e streaming iniciado com sucesso:', result)
       
       // Verificar se o streaming está realmente conectado
       if (result.data?.isConnected) {
         console.log('🎉 Nó totalmente conectado e operacional!')
+        
+        // Verificar se o nó foi registrado no servidor cloud
+        if (result.data?.isNodeRegistered) {
+          console.log('✅ Nó confirmado como registrado no servidor cloud')
+          
+          // Log das informações do nó registrado
+          if (result.data?.registeredNodeId) {
+            console.log(`🆔 ID do nó registrado: ${result.data.registeredNodeId}`)
+          }
+          if (result.data?.nodeAccessToken) {
+            console.log(`🔑 Token de acesso do nó: ${result.data.nodeAccessToken.substring(0, 20)}...`)
+          }
+        } else {
+          console.warn('⚠️ Nó conectado mas pode não estar completamente registrado no servidor cloud')
+        }
+        
+        // Log de informações de conectividade
+        if (result.data?.cloudServerUrl) {
+          console.log(`🌐 Servidor cloud: ${result.data.cloudServerUrl} (Acessível: ${result.data.isCloudReachable ? 'Sim' : 'Não'})`)
+        }
+        
+        if (result.data?.duration) {
+          console.log(`⏱️ Tempo de registro: ${result.data.duration}`)
+        }
       } else {
         console.warn('⚠️ Nó registrado mas streaming pode não estar ativo')
       }
+      
+      // Marcar como registrado com sucesso
+      nodeRegistrationAttempted = true
     } else {
       const errorText = await response.text()
-      console.warn('⚠️ Falha ao registrar node unificado:', response.status, errorText)
+      console.warn('⚠️ Falha ao registrar node no cloud:', response.status, errorText)
+      
+      // Tentar obter mais detalhes do erro
+      try {
+        const errorData = JSON.parse(errorText)
+        if (errorData.error) {
+          console.error('❌ Erro detalhado:', errorData.error)
+        }
+        if (errorData.cloudServerUrl) {
+          console.error('🌐 Servidor cloud:', errorData.cloudServerUrl)
+        }
+        if (errorData.isCloudReachable === false) {
+          console.error('❌ Servidor cloud não está acessível')
+        }
+      } catch (parseError) {
+        console.error('❌ Erro ao fazer parse da resposta de erro:', parseError)
+      }
+      
+      // Resetar flag em caso de erro para permitir nova tentativa
+      nodeRegistrationAttempted = false
     }
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        console.warn('⚠️ Timeout ao registrar node unificado (15s)')
+        console.warn('⚠️ Timeout ao registrar node (15s)')
       } else if ('code' in error && (error as { code: string }).code === 'ECONNREFUSED') {
         console.warn('⚠️ API não está rodando em http://localhost:8000')
       } else {
-        console.error('❌ Erro ao registrar node unificado:', error)
+        console.error('❌ Erro ao registrar node:', error)
       }
     } else {
-      console.error('❌ Erro desconhecido ao registrar node unificado:', error)
+      console.error('❌ Erro desconhecido ao registrar node:', error)
     }
-    // Resetar flag em caso de erro para permitir nova tentativa
+    // Resetar flags em caso de erro para permitir nova tentativa
     nodeRegistrationAttempted = false
+  } finally {
+    // Sempre resetar flag de progresso
+    nodeRegistrationInProgress = false
   }
 }
 
@@ -277,15 +407,11 @@ ipcMain.handle('nodeConfig:get', async () => {
   
   console.log('✅ Handler nodeConfig:get retornando:', cfg)
   
-  // Registrar o node e iniciar streaming DEPOIS de retornar a configuração
-  setImmediate(async () => {
-    try {
-      const user = await getLoggedUser()
-      await registerNodeAndStartStreaming(cfg, user?.id)
-    } catch (error) {
-      console.error('❌ Erro ao registrar node e iniciar streaming:', error)
-    }
-  })
+  // NÃO registrar automaticamente aqui - será feito quando necessário
+  // O registro será feito quando:
+  // 1. A API estiver rodando
+  // 2. O usuário estiver autenticado
+  // 3. O componente React solicitar
   
   return cfg
 })
@@ -302,6 +428,24 @@ ipcMain.handle('registerNode', async (_event, databasePath?: string) => {
     console.log('📡 Handler registerNode chamado com databasePath:', databasePath)
     const cfg = getOrCreateNodeConfig()
     const user = await getLoggedUser()
+    
+    // Verificar se a API está rodando antes de tentar registrar
+    try {
+      const apiStatus = await apiManager.getStatus()
+      if (!apiStatus.isRunning) {
+        console.warn('⚠️ API não está rodando, iniciando...')
+        await apiManager.startApi()
+        // Aguardar um pouco para a API inicializar
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+    } catch (error) {
+      console.error('❌ Erro ao verificar/iniciar API:', error)
+      return {
+        success: false,
+        error: 'API não está disponível'
+      }
+    }
+    
     await registerNodeAndStartStreaming(cfg, user?.id)
     
     // Retornar informações do nó registrado
@@ -628,6 +772,21 @@ app.whenReady().then(async () => {
   try {
     console.log('🔍 Verificando status da API...')
     await apiManager.ensureApiRunning()
+    
+    // Aguardar um pouco para a API estar completamente pronta
+    console.log('⏳ Aguardando API estar pronta...')
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    
+    // Registrar o nó automaticamente após a API estar pronta
+    console.log('🚀 Registrando nó automaticamente...')
+    try {
+      const cfg = getOrCreateNodeConfig()
+      const user = await getLoggedUser()
+      await registerNodeAndStartStreaming(cfg, user?.id, true) // forceRegister = true
+      console.log('✅ Nó registrado automaticamente com sucesso!')
+    } catch (regError) {
+      console.error('❌ Erro ao registrar nó automaticamente:', regError instanceof Error ? regError.message : String(regError))
+    }
   } catch (error) {
     console.error('❌ Erro ao verificar/iniciar API:', error instanceof Error ? error.message : String(error))
   }

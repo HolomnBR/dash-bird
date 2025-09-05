@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('system', {
     const paths = await ipcRenderer.invoke('dialog:openFile', { filters })
     return paths as string[]
   },
+  async registerNode(databasePath?: string) {
+    return await ipcRenderer.invoke('registerNode', databasePath)
+  },
 })
 
 contextBridge.exposeInMainWorld('auth', {
@@ -89,6 +92,7 @@ declare global {
         createdAt: string
       }>
       openFile: (filters?: Array<{ name: string; extensions: string[] }>) => Promise<string[]>
+      registerNode: (databasePath?: string) => Promise<{ success: boolean; data?: any; error?: string }>
     }
     auth: {
       register: (userData: { name: string; email: string; password: string }) => Promise<{ success: boolean; data?: any; error?: string }>

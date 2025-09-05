@@ -82,7 +82,8 @@ namespace FirebirdApi.Services
             using var command = new FbCommand(query, connection);
             
             await connection.OpenAsync();
-            return await command.ExecuteScalarAsync();
+            var result = await command.ExecuteScalarAsync();
+            return result ?? DBNull.Value;
         }
 
         public async Task<bool> TestConnectionAsync(string? databaseId = null)

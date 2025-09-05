@@ -19,8 +19,9 @@ namespace FirebirdApi.Controllers
         private readonly IMachineIdService _machineIdService;
         private readonly ICommandStreamService _commandStreamService;
         private readonly ISystemInfoService _systemInfoService;
+        private readonly INodeRegistrationGrpcService _nodeRegistrationService;
 
-        public SyncController(HttpClient httpClient, IConfiguration configuration, ILogger<SyncController> logger, IDatabaseConfigService configService, IMachineIdService machineIdService, ICommandStreamService commandStreamService, ISystemInfoService systemInfoService)
+        public SyncController(HttpClient httpClient, IConfiguration configuration, ILogger<SyncController> logger, IDatabaseConfigService configService, IMachineIdService machineIdService, ICommandStreamService commandStreamService, ISystemInfoService systemInfoService, INodeRegistrationGrpcService nodeRegistrationService)
         {
             _httpClient = httpClient;
             _configuration = configuration;
@@ -29,17 +30,22 @@ namespace FirebirdApi.Controllers
             _machineIdService = machineIdService;
             _commandStreamService = commandStreamService;
             _systemInfoService = systemInfoService;
+            _nodeRegistrationService = nodeRegistrationService;
         }
 
         /// <summary>
-        /// Registrar nó desktop no servidor cloud via streaming gRPC (MÉTODO UNIFICADO)
+        /// Registrar nó desktop no servidor cloud via streaming gRPC (MÉTODO UNIFICADO E MELHORADO)
         /// </summary>
         [HttpPost("register-node")]
         public async Task<IActionResult> RegisterNode([FromBody] DesktopNodeRegistration request)
         {
+            var startTime = DateTime.UtcNow;
+            var connectionId = request.NodeId ?? Guid.NewGuid().ToString();
+            
             try
             {
-                _logger.LogInformation("🔄 Iniciando registro unificado de nó desktop: {MachineId}", request.MachineId);
+                _logger.LogInformation("🔄 Iniciando registro unificado de nó desktop: {MachineId} (ConnectionId: {ConnectionId})", 
+                    request.MachineId, connectionId);
 
                 // Armazenar o MachineId recebido do Electron
                 _machineIdService.SetMachineId(request.MachineId);
@@ -52,9 +58,6 @@ namespace FirebirdApi.Controllers
                 _logger.LogInformation("📝 Registrando nó como {NodeType}: {MachineId}", 
                     isAnonymous ? "ANÔNIMO (userId=null)" : "AUTENTICADO (userId=preenchido)", request.MachineId);
 
-                // Gerar connectionId único baseado no nodeId
-                var connectionId = request.NodeId ?? Guid.NewGuid().ToString();
-                
                 // Obter informações do sistema
                 var operatingSystem = _systemInfoService.GetOperatingSystem();
                 var systemVersion = _systemInfoService.GetSystemVersion();
@@ -68,29 +71,93 @@ namespace FirebirdApi.Controllers
                 {
                     request.Version = systemVersion;
                 }
+
+                // 1. Verificar conectividade com o servidor cloud antes de iniciar streaming
+                _logger.LogInformation("🔍 Verificando conectividade com o servidor cloud...");
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var grpcServerUrl = _configuration["GrpcServer:Url"] ?? "https://localhost:7001";
+                _logger.LogInformation("🌐 URLs configuradas - HTTP: {HttpUrl}, gRPC: {GrpcUrl}", cloudServerUrl, grpcServerUrl);
                 
-                // 1. Iniciar streaming gRPC (que já registra o nó automaticamente)
+                // Verificar conectividade HTTP primeiro (para validação de token)
+                var isCloudReachable = await CheckCloudServerConnectivity(cloudServerUrl);
+                
+                if (!isCloudReachable)
+                {
+                    _logger.LogWarning("⚠️ Servidor HTTP não está acessível: {CloudUrl}, mas continuando com gRPC...", cloudServerUrl);
+                }
+                else
+                {
+                    _logger.LogInformation("✅ Servidor HTTP está acessível: {CloudUrl}", cloudServerUrl);
+                }
+                
+                _logger.LogInformation("🚀 Continuando com registro gRPC independente do status HTTP...");
+                
+                // 2. Registrar nó no servidor cloud via gRPC
+                _logger.LogInformation("🔄 Registrando nó no servidor cloud via gRPC...");
+                _logger.LogInformation("📋 Dados do registro - ConnectionId: {ConnectionId}, MachineId: {MachineId}, AuthToken: {HasToken}, Name: {Name}, MachineName: {MachineName}", 
+                    connectionId, request.MachineId, !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO", request.Name, request.MachineName);
+                _logger.LogInformation("📋 Dados adicionais - Version: {Version}, OperatingSystem: {OperatingSystem}", 
+                    request.Version, request.OperatingSystem);
+                
+                var nodeRegistrationResult = await RegisterNodeInCloudAsync(connectionId, request.MachineId, authToken, request.Name, request.MachineName, request.Version, request.OperatingSystem);
+                
+                if (!nodeRegistrationResult.Success)
+                {
+                    _logger.LogError("❌ FALHA CRÍTICA no registro do nó via gRPC! Continuando com streaming...");
+                    _logger.LogError("❌ Detalhes da falha - NodeId: {NodeId}, AccessToken: {AccessToken}", 
+                        nodeRegistrationResult.NodeId ?? "NULL", nodeRegistrationResult.AccessToken ?? "NULL");
+                }
+                else
+                {
+                    _logger.LogInformation("✅ Nó registrado com sucesso via gRPC: {NodeId}", nodeRegistrationResult.NodeId);
+                    _logger.LogInformation("✅ AccessToken recebido: {HasToken}", !string.IsNullOrEmpty(nodeRegistrationResult.AccessToken) ? "SIM" : "NÃO");
+                }
+                
+                // 3. Iniciar streaming gRPC
+                _logger.LogInformation("🚀 Iniciando streaming gRPC...");
+                _logger.LogInformation("📋 Parâmetros do streaming - ConnectionId: {ConnectionId}, MachineId: {MachineId}, AuthToken: {HasToken}", 
+                    connectionId, request.MachineId, !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO");
+                
                 await _commandStreamService.StartStreamingAsync(connectionId, request.MachineId, authToken, connectionId, request.Name, request.MachineName, request.Version, request.OperatingSystem);
+
+                _logger.LogInformation("🔍 Verificando status da conexão gRPC após StartStreamingAsync...");
+                _logger.LogInformation("📊 IsConnected: {IsConnected}, IsNodeRegistered: {IsNodeRegistered}", 
+                    _commandStreamService.IsConnected, _commandStreamService.IsNodeRegistered);
 
                 if (_commandStreamService.IsConnected)
                 {
-                    _logger.LogInformation("✅ Nó registrado e streaming iniciado com sucesso - isAnonymous: {IsAnonymous}", isAnonymous);
+                    _logger.LogInformation("✅ Streaming gRPC iniciado com sucesso - isAnonymous: {IsAnonymous}", isAnonymous);
                     
-                    // 2. Aguardar um momento para o nó ser completamente registrado no servidor
+                    // 3. Aguardar um momento para o nó ser completamente registrado no servidor
                     _logger.LogInformation("⏳ Aguardando 3 segundos para completar registro do nó no servidor...");
                     await Task.Delay(3000);
                     
-                    // 3. Verificar se o nó está devidamente registrado
+                    // 4. Verificar se o nó está devidamente registrado no servidor cloud
+                    _logger.LogInformation("🔍 Verificando se o nó foi registrado no servidor cloud...");
                     var isNodeRegistered = await _commandStreamService.IsNodeRegisteredAsync();
+                    
                     if (!isNodeRegistered)
                     {
-                        _logger.LogWarning("⚠️ Nó não está devidamente registrado, aguardando mais 2 segundos...");
+                        _logger.LogWarning("⚠️ Nó não está devidamente registrado, aguardando mais 2 segundos e tentando novamente...");
                         await Task.Delay(2000);
+                        isNodeRegistered = await _commandStreamService.IsNodeRegisteredAsync();
                     }
                     
-                    // 4. Sincronizar databases automaticamente após registro do nó
+                    if (isNodeRegistered)
+                    {
+                        _logger.LogInformation("✅ Nó confirmado como registrado no servidor cloud");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠️ Nó pode não estar completamente registrado no servidor cloud, mas continuando...");
+                    }
+                    
+                    // 5. Sincronizar databases automaticamente após registro do nó
                     _logger.LogInformation("🔄 Iniciando sincronização de databases após registro do nó...");
                     await SyncAllDatabasesToCloudAsync();
+                    
+                    var duration = DateTime.UtcNow - startTime;
+                    _logger.LogInformation("🎉 Registro de nó concluído com sucesso em {Duration}ms", duration.TotalMilliseconds);
                     
                     return Ok(new { 
                         success = true, 
@@ -100,29 +167,41 @@ namespace FirebirdApi.Controllers
                             machineId = request.MachineId,
                             isAnonymous = isAnonymous,
                             isConnected = true,
+                            isNodeRegistered = isNodeRegistered,
+                            registeredNodeId = nodeRegistrationResult.NodeId,
+                            nodeAccessToken = nodeRegistrationResult.AccessToken,
+                            cloudServerUrl = cloudServerUrl,
+                            isCloudReachable = isCloudReachable,
                             message = $"Nó registrado e streaming iniciado via gRPC (isAnonymous: {isAnonymous})",
+                            duration = $"{duration.TotalMilliseconds}ms",
                             timestamp = DateTime.UtcNow
                         }
                     });
                 }
                 else
                 {
-                    _logger.LogWarning("❌ Falha ao registrar nó e iniciar streaming");
+                    _logger.LogError("❌ Falha ao iniciar streaming gRPC - conexão não estabelecida");
                     return BadRequest(new { 
                         success = false, 
-                        error = "Falha ao conectar com o servidor cloud",
+                        error = "Falha ao estabelecer conexão gRPC com o servidor cloud",
                         machineId = request.MachineId,
+                        connectionId = connectionId,
+                        cloudServerUrl = cloudServerUrl,
+                        isCloudReachable = isCloudReachable,
                         timestamp = DateTime.UtcNow
                     });
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Erro interno ao registrar nó via streaming gRPC");
+                var duration = DateTime.UtcNow - startTime;
+                _logger.LogError(ex, "❌ Erro interno ao registrar nó via streaming gRPC após {Duration}ms", duration.TotalMilliseconds);
                 return StatusCode(500, new { 
                     success = false, 
                     error = $"Erro interno: {ex.Message}",
                     machineId = request.MachineId,
+                    connectionId = connectionId,
+                    duration = $"{duration.TotalMilliseconds}ms",
                     timestamp = DateTime.UtcNow
                 });
             }
@@ -1211,6 +1290,75 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Obter status detalhado do nó e streaming
+        /// </summary>
+        [HttpGet("node-status")]
+        public async Task<IActionResult> GetNodeStatus()
+        {
+            try
+            {
+                var machineId = GetMachineId();
+                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                
+                // Verificar conectividade com o servidor cloud
+                var isCloudReachable = await CheckCloudServerConnectivity(cloudServerUrl);
+                
+                // Obter status do streaming gRPC
+                var streamingStatus = _commandStreamService.GetConnectionStatus();
+                
+                // Verificar se o nó está registrado no servidor cloud
+                var isNodeRegistered = false;
+                if (_commandStreamService.IsConnected)
+                {
+                    isNodeRegistered = await _commandStreamService.IsNodeRegisteredAsync();
+                }
+                
+                var status = new
+                {
+                    machineId = machineId,
+                    timestamp = DateTime.UtcNow,
+                    cloudServer = new
+                    {
+                        url = cloudServerUrl,
+                        isReachable = isCloudReachable,
+                        status = isCloudReachable ? "ONLINE" : "OFFLINE"
+                    },
+                    streaming = new
+                    {
+                        isConnected = _commandStreamService.IsConnected,
+                        connectionId = _commandStreamService.CurrentConnectionId,
+                        lastConnectedAt = _commandStreamService.LastConnectedAt,
+                        lastSeenAt = _commandStreamService.LastSeenAt,
+                        status = _commandStreamService.IsConnected ? "ONLINE" : "OFFLINE"
+                    },
+                    nodeRegistration = new
+                    {
+                        isRegistered = isNodeRegistered,
+                        status = isNodeRegistered ? "REGISTERED" : "NOT_REGISTERED"
+                    },
+                    overallStatus = _commandStreamService.IsConnected && isCloudReachable && isNodeRegistered ? "FULLY_OPERATIONAL" : "DEGRADED"
+                };
+
+                return Ok(new
+                {
+                    success = true,
+                    data = status,
+                    message = $"Status do nó: {status.overallStatus}"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao obter status do nó");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        /// <summary>
         /// Vincular nó anônimo a um usuário autenticado (MÉTODO MELHORADO)
         /// </summary>
         [HttpPost("link-node-to-user")]
@@ -1462,6 +1610,94 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
+        /// Registra o nó no servidor cloud via gRPC
+        /// </summary>
+        private async Task<(bool Success, string? NodeId, string? AccessToken)> RegisterNodeInCloudAsync(string connectionId, string machineId, string? authToken, string? name, string? machineName, string? version, string? operatingSystem)
+        {
+            try
+            {
+                var isAnonymous = string.IsNullOrEmpty(authToken);
+                _logger.LogInformation("🔧 RegisterNodeInCloudAsync iniciado - isAnonymous: {IsAnonymous}, MachineId: {MachineId}", isAnonymous, machineId);
+                
+                if (isAnonymous)
+                {
+                    // Registrar como nó anônimo
+                    var request = new RegisterAnonymousNodeRequest
+                    {
+                        MachineId = machineId,
+                        Name = name ?? machineName ?? $"Node-{connectionId.Substring(0, Math.Min(8, connectionId.Length))}",
+                        MachineName = machineName ?? Environment.MachineName,
+                        IpAddress = "::1", // Localhost
+                        Port = 8000,
+                        Version = version ?? "2.1.3",
+                        OperatingSystem = operatingSystem ?? Environment.OSVersion.ToString(),
+                        DatabasePath = "" // Campo obrigatório - usando string vazia como padrão
+                    };
+
+                    _logger.LogInformation("📤 Enviando RegisterAnonymousNodeRequest - Name: {Name}, MachineName: {MachineName}, Port: {Port}", 
+                        request.Name, request.MachineName, request.Port);
+                    
+                    var response = await _nodeRegistrationService.RegisterAnonymousNodeAsync(request);
+                    
+                    _logger.LogInformation("📥 Resposta RegisterAnonymousNodeResponse - Success: {Success}, NodeId: {NodeId}, Message: {Message}", 
+                        response.Success, response.NodeId, response.Message);
+                    
+                    if (response.Success)
+                    {
+                        _logger.LogInformation("✅ Nó anônimo registrado com sucesso: {NodeId}", response.NodeId);
+                        return (true, response.NodeId, response.AnonymousToken);
+                    }
+                    else
+                    {
+                        _logger.LogError("❌ Falha ao registrar nó anônimo: {Message}", response.Message);
+                        return (false, null, null);
+                    }
+                }
+                else
+                {
+                    // Registrar como nó autenticado
+                    var request = new RegisterNodeRequest
+                    {
+                        MachineId = machineId,
+                        Name = name ?? machineName ?? $"Node-{connectionId.Substring(0, Math.Min(8, connectionId.Length))}",
+                        MachineName = machineName ?? Environment.MachineName,
+                        IpAddress = "::1", // Localhost
+                        Port = 8000,
+                        Version = version ?? "2.1.3",
+                        OperatingSystem = operatingSystem ?? Environment.OSVersion.ToString(),
+                        DatabasePath = "", // Campo obrigatório - usando string vazia como padrão
+                        AuthToken = authToken
+                    };
+
+                    _logger.LogInformation("📤 Enviando RegisterNodeRequest - Name: {Name}, MachineName: {MachineName}, Port: {Port}, AuthToken: {HasToken}", 
+                        request.Name, request.MachineName, request.Port, !string.IsNullOrEmpty(request.AuthToken) ? "SIM" : "NÃO");
+                    
+                    var response = await _nodeRegistrationService.RegisterNodeAsync(request);
+                    
+                    _logger.LogInformation("📥 Resposta RegisterNodeResponse - Success: {Success}, NodeId: {NodeId}, Message: {Message}", 
+                        response.Success, response.NodeId, response.Message);
+                    
+                    if (response.Success)
+                    {
+                        _logger.LogInformation("✅ Nó autenticado registrado com sucesso: {NodeId}", response.NodeId);
+                        return (true, response.NodeId, response.AccessToken);
+                    }
+                    else
+                    {
+                        _logger.LogError("❌ Falha ao registrar nó autenticado: {Message}", response.Message);
+                        return (false, null, null);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ ERRO CRÍTICO ao registrar nó no servidor cloud: {Error}", ex.Message);
+                _logger.LogError("❌ Stack trace: {StackTrace}", ex.StackTrace);
+                return (false, null, null);
+            }
+        }
+
+        /// <summary>
         /// Obtém o MachineId correto para comunicação com o cloud
         /// </summary>
         private string GetMachineId()
@@ -1480,6 +1716,41 @@ namespace FirebirdApi.Controllers
                 return authHeader.Substring("Bearer ".Length).Trim();
             }
             return null;
+        }
+
+        /// <summary>
+        /// Verifica se o servidor cloud está acessível
+        /// </summary>
+        private async Task<bool> CheckCloudServerConnectivity(string cloudServerUrl)
+        {
+            try
+            {
+                _logger.LogInformation("🔍 Testando conectividade com servidor cloud: {CloudUrl}", cloudServerUrl);
+                
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var response = await _httpClient.GetAsync($"{cloudServerUrl}/health", cts.Token);
+                
+                var isReachable = response.IsSuccessStatusCode;
+                _logger.LogInformation("📡 Resposta do servidor cloud: {StatusCode} - Acessível: {IsReachable}", 
+                    response.StatusCode, isReachable);
+                
+                return isReachable;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning("⚠️ Erro de conexão HTTP com servidor cloud: {Error}", ex.Message);
+                return false;
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogWarning("⚠️ Timeout ao conectar com servidor cloud: {Error}", ex.Message);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("⚠️ Erro inesperado ao verificar conectividade: {Error}", ex.Message);
+                return false;
+            }
         }
 
 

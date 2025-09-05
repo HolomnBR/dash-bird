@@ -12,6 +12,7 @@ namespace FirebirdApi.Services
         Task TryReconnectWithStoredTokenAsync();
         object GetConnectionStatus();
         bool IsConnected { get; }
+        bool IsNodeRegistered { get; }
         string? CurrentConnectionId { get; }
         string? CurrentMachineId { get; }
         string? CurrentUserId { get; }

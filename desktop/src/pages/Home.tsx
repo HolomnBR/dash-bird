@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Settings as SettingsIcon, Plus, BarChart3 } from 'lucide-react'
 import { Header } from '../components/molecules/Header'
 import { DatabaseList } from '../components/organisms/DatabaseList'
+import { LocalNodeInfo } from '../components/LocalNodeInfo'
 
 export function Home() {
   const [deviceName, setDeviceName] = useState<string>('')
@@ -49,29 +50,9 @@ export function Home() {
         subtitle={machineId || ''}
       />
       <div className="p-6">
-        <Link 
-          to="/settings" 
-          className="mb-4 block rounded border border-gray-700/50 p-3 hover:border-gray-600/50 hover:bg-gray-50/5 transition-colors cursor-pointer"
-          aria-label="Configurações do nó"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs opacity-70">Configuração deste nó</div>
-            <SettingsIcon size={16} className="opacity-60 hover:opacity-100 transition-opacity" />
-          </div>
-          <div className="text-xs space-y-1">
-            <div>
-              <span className="opacity-70">Nome:</span> {alias ? `${deviceName} (${alias})` : (deviceName || 'Carregando...')}
-            </div>
-            <div>
-              <span className="opacity-70">Machine ID:</span>{' '}
-              <span title={machineId}>{machineId ? `${machineId.slice(0, 8)}...${machineId.slice(-6)}` : 'Carregando...'}</span>
-            </div>
-            <div>
-              <span className="opacity-70">Node ID:</span>{' '}
-              <span title={nodeId}>{nodeId ? `${nodeId.slice(0, 8)}...${nodeId.slice(-6)}` : 'Carregando...'}</span>
-            </div>
-          </div>
-        </Link>
+        <div className="mb-4">
+          <LocalNodeInfo showDetails={true} />
+        </div>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm opacity-70">Bases configuradas</h2>
           <Link to="/databases/new" aria-label="Nova base" title="Nova base" className="opacity-80 hover:opacity-100">

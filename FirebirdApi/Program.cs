@@ -1,8 +1,10 @@
 using FirebirdApi.Models;
 using FirebirdApi.Services;
+using FirebirdApi.Data;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
 // removed Filters due to incompatibility
 
 var builder = WebApplication.CreateBuilder(args);
@@ -70,7 +72,7 @@ builder.Services.AddHttpClient("CloudServer", client =>
 });
 
 // Registrar o serviço de configuração de bases de dados
-builder.Services.AddSingleton<IDatabaseConfigService, DatabaseConfigService>();
+builder.Services.AddScoped<IDatabaseConfigService, DatabaseConfigService>();
 
 // Registrar o serviço Firebird (será configurado dinamicamente)
 builder.Services.AddScoped<IFirebirdService, FirebirdService>();
@@ -113,8 +115,22 @@ builder.Services.AddSingleton<IMachineIdService, MachineIdService>();
 // Registrar o serviço de informações do sistema
 builder.Services.AddSingleton<ISystemInfoService, SystemInfoService>();
 
-// Registrar o serviço de armazenamento de tokens
-builder.Services.AddSingleton<ITokenStorageService, TokenStorageService>();
+// Configurar SQLite
+var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DashBird");
+Directory.CreateDirectory(dataDir);
+var dbPath = Path.Combine(dataDir, "dashbird_local.db");
+
+builder.Services.AddDbContext<LocalDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}"));
+
+// Registrar o serviço de armazenamento SQLite
+builder.Services.AddScoped<ISqliteStorageService, SqliteStorageService>();
+
+// Registrar o serviço de snapshots
+builder.Services.AddScoped<ISnapshotService, SnapshotService>();
+
+// Registrar o serviço de armazenamento de tokens (manter compatibilidade)
+builder.Services.AddScoped<ITokenStorageService, TokenStorageService>();
 
 // Registrar IHttpContextAccessor para o AuthService (deve vir antes do AuthService)
 builder.Services.AddHttpContextAccessor();
@@ -124,10 +140,13 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 
 
 
-// Registrar o serviço de streaming de comandos como HostedService
+// Registrar o serviço de streaming de comandos
 builder.Services.AddSingleton<ICommandStreamService, CommandStreamService>();
-builder.Services.AddHostedService<CommandStreamService>(provider => 
-    (CommandStreamService)provider.GetRequiredService<ICommandStreamService>());
+builder.Services.AddScoped<INodeRegistrationGrpcService, NodeRegistrationGrpcService>();
+builder.Services.AddHostedService<CommandStreamHostedService>();
+
+// Registrar o serviço de nós locais
+builder.Services.AddScoped<ILocalNodeService, LocalNodeService>();
 
 var app = builder.Build();
 
@@ -196,6 +215,21 @@ lifetime.ApplicationStopped.Register(() =>
 {
     logger.LogInformation("🛑 Aplicação parou completamente");
 });
+
+// Inicializar banco de dados SQLite
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<LocalDbContext>();
+    try
+    {
+        context.Database.Migrate();
+        logger.LogInformation("✅ Banco de dados SQLite inicializado com migrações");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Erro ao inicializar banco de dados SQLite");
+    }
+}
 
 logger.LogInformation("🚀 Iniciando aplicação...");
 app.Run();

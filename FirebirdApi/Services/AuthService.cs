@@ -16,6 +16,7 @@ namespace FirebirdApi.Services
         private readonly HttpClient _httpClient;
         private readonly IMachineIdService _machineIdService;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ITokenStorageService _tokenStorageService;
         private readonly string _cloudServerUrl;
 
         public AuthService(
@@ -23,13 +24,15 @@ namespace FirebirdApi.Services
             ILogger<AuthService> logger, 
             IHttpClientFactory httpClientFactory,
             IMachineIdService machineIdService,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            ITokenStorageService tokenStorageService)
         {
             _configuration = configuration;
             _logger = logger;
             _httpClient = httpClientFactory.CreateClient("CloudServer");
             _machineIdService = machineIdService;
             _httpContextAccessor = httpContextAccessor;
+            _tokenStorageService = tokenStorageService;
             _cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
         }
 
@@ -232,7 +235,7 @@ namespace FirebirdApi.Services
             }
         }
 
-        public async Task<string?> GetUserIdFromTokenAsync(string token)
+        public Task<string?> GetUserIdFromTokenAsync(string token)
         {
             try
             {
@@ -240,11 +243,11 @@ namespace FirebirdApi.Services
                 var jwtToken = tokenHandler.ReadJwtToken(token);
 
                 var userIdClaim = jwtToken.Claims.FirstOrDefault(x => x.Type == "userId");
-                return userIdClaim?.Value;
+                return Task.FromResult(userIdClaim?.Value);
             }
             catch
             {
-                return null;
+                return Task.FromResult<string?>(null);
             }
         }
 
@@ -311,8 +314,19 @@ namespace FirebirdApi.Services
             {
                 _logger.LogInformation("Vinculando nó anônimo ao usuário: {Token} -> {UserId}", anonymousToken, userId);
 
+                var token = await GetTokenFromContextAsync();
+                if (string.IsNullOrEmpty(token))
+                {
+                    _logger.LogError("Token não encontrado para vincular nó");
+                    return new BindNodeToUserResponse
+                    {
+                        Success = false,
+                        Message = "Token de autenticação não encontrado"
+                    };
+                }
+
                 var request = new HttpRequestMessage(HttpMethod.Post, $"{_cloudServerUrl}/api/User/bind-node");
-                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GetTokenFromContext());
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
                 request.Content = JsonContent.Create(new { AnonymousToken = anonymousToken });
 
                 var response = await _httpClient.SendAsync(request);
@@ -360,12 +374,12 @@ namespace FirebirdApi.Services
             {
                 _logger.LogInformation("Vinculando nó atual ao usuário: {MachineId} -> {UserId}", machineId, userId);
 
-                var token = GetTokenFromContext();
-                _logger.LogInformation("Token obtido do contexto: {TokenLength} caracteres", token?.Length ?? 0);
+                var token = await GetTokenFromContextAsync();
+                _logger.LogInformation("Token obtido: {TokenLength} caracteres", token?.Length ?? 0);
 
                 if (string.IsNullOrEmpty(token))
                 {
-                    _logger.LogError("Token não encontrado no contexto HTTP");
+                    _logger.LogError("Token não encontrado no contexto HTTP nem no armazenamento local");
                     return new BindNodeToUserResponse
                     {
                         Success = false,
@@ -423,10 +437,10 @@ namespace FirebirdApi.Services
             {
                 _logger.LogInformation("Obtendo nós do usuário: {UserId}", userId);
 
-                var token = GetTokenFromContext();
+                var token = await GetTokenFromContextAsync();
                 if (string.IsNullOrEmpty(token))
                 {
-                    _logger.LogError("Token não encontrado no contexto HTTP");
+                    _logger.LogError("Token não encontrado no contexto HTTP nem no armazenamento local");
                     return new List<object>();
                 }
 
@@ -459,10 +473,10 @@ namespace FirebirdApi.Services
             {
                 _logger.LogInformation("Desvinculando nó do usuário: {NodeId} <- {UserId}", nodeId, userId);
 
-                var token = GetTokenFromContext();
+                var token = await GetTokenFromContextAsync();
                 if (string.IsNullOrEmpty(token))
                 {
-                    _logger.LogError("Token não encontrado no contexto HTTP");
+                    _logger.LogError("Token não encontrado no contexto HTTP nem no armazenamento local");
                     return new UnbindNodeFromUserResponse
                     {
                         Success = false,
@@ -612,10 +626,10 @@ namespace FirebirdApi.Services
             {
                 _logger.LogInformation("Obtendo tokens do usuário: {UserId}", userId);
 
-                var token = GetTokenFromContext();
+                var token = await GetTokenFromContextAsync();
                 if (string.IsNullOrEmpty(token))
                 {
-                    _logger.LogError("Token não encontrado no contexto HTTP");
+                    _logger.LogError("Token não encontrado no contexto HTTP nem no armazenamento local");
                     return new List<object>();
                 }
 
@@ -639,6 +653,57 @@ namespace FirebirdApi.Services
             {
                 _logger.LogWarning("Erro ao obter tokens do usuário: {UserId} - {Error}", userId, ex.Message);
                 return new List<object>();
+            }
+        }
+
+        /// <summary>
+        /// Obtém o token armazenado localmente para uso em operações internas
+        /// </summary>
+        public async Task<string?> GetStoredTokenAsync()
+        {
+            return await _tokenStorageService.GetStoredTokenAsync();
+        }
+
+        /// <summary>
+        /// Verifica se há um token válido armazenado localmente
+        /// </summary>
+        public async Task<bool> HasValidStoredTokenAsync()
+        {
+            return await _tokenStorageService.HasValidTokenAsync();
+        }
+
+        private async Task<string?> GetTokenFromContextAsync()
+        {
+            try
+            {
+                // Primeiro tentar obter do contexto HTTP atual
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext != null)
+                {
+                    var authHeader = httpContext.Request.Headers["Authorization"].FirstOrDefault();
+                    if (authHeader != null && authHeader.StartsWith("Bearer "))
+                    {
+                        var token = authHeader.Substring("Bearer ".Length).Trim();
+                        _logger.LogDebug("Token obtido do header HTTP");
+                        return token;
+                    }
+                }
+
+                // Se não encontrou no header, tentar obter do armazenamento local
+                var storedToken = await _tokenStorageService.GetStoredTokenAsync();
+                if (!string.IsNullOrEmpty(storedToken))
+                {
+                    _logger.LogDebug("Token obtido do armazenamento local");
+                    return storedToken;
+                }
+
+                _logger.LogWarning("Token não encontrado nem no header nem no armazenamento local");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter token do contexto");
+                return null;
             }
         }
 
