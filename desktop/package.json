@@ -25,6 +25,7 @@
     "build:windows:signed": "node scripts/build-with-signing.js",
     "build:windows:portable": "node scripts/build-portable-only.js",
     "build:windows:legacy": "pnpm build:full && electron-builder --win --publish never --config.win.certificateFile=$CSC_LINK --config.win.certificatePassword=$CSC_KEY_PASSWORD",
+    "build:windows:admin": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-admin.ps1",
     "test:api": "node scripts/test-api.js",
     "test:upload-path": "node scripts/test-upload-path.js",
     "test:code-signing": "powershell -ExecutionPolicy Bypass -File scripts/test-code-signing.ps1",

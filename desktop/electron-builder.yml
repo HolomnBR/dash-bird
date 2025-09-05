@@ -6,6 +6,8 @@ files:
   - "dist/**/*"
   - "dist-electron/**/*"
   - "api-dist/**/*"
+  - "!api-dist/**/*.pdb"
+  - "!api-dist/**/*.xml"
 
 # Configurações específicas para Windows
 win:
@@ -16,6 +18,12 @@ win:
     - target: portable
       arch:
         - x64
+  
+  # Garantir que a API seja incluída no pacote
+  extraResources:
+    - from: "api-dist"
+      to: "api-dist"
+      filter: ["**/*"]
   
   # Configurações de assinatura de código (propriedades corretas para v26.0.12)
   # Configuração simplificada para melhor compatibilidade
