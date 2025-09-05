@@ -2,7 +2,7 @@
 
 API para gerenciamento de bases de dados Firebird com sistema de configuração múltipla.
 
-## Funcionalidades
+## Funcionalidades 1
 
 ### Sistema de Configuração de Bases de Dados
 - ✅ **Listar bases adicionadas** - Visualizar todas as bases configuradas
