@@ -1,7 +1,7 @@
 
 
 
-using FirebirdApi.Protos;
+using DashBirdServer.Protos;
 using Grpc.Net.Client;
 using System.Data;
 
@@ -23,61 +23,59 @@ namespace FirebirdApi.Services
         private readonly ILogger<GrpcClientService> _logger;
         private readonly IConfiguration _configuration;
 
-        public GrpcClientService(ILogger<GrpcClientService> logger, IConfiguration configuration)
+        public GrpcClientService(DashBirdService.DashBirdServiceClient grpcClient, ILogger<GrpcClientService> logger, IConfiguration configuration)
         {
+            _grpcClient = grpcClient;
             _logger = logger;
             _configuration = configuration;
             
-            // Configurar o canal gRPC - ajuste a URL conforme necessário
-            var grpcServerUrl = _configuration["GrpcServer:Url"] ?? "https://localhost:7001";
-            
-            // Configurar HttpClientHandler para lidar com certificados SSL em desenvolvimento
-            var httpHandler = new HttpClientHandler();
-            
-            // Em desenvolvimento, ignorar erros de certificado SSL
-            if (grpcServerUrl.StartsWith("https://localhost") || grpcServerUrl.StartsWith("https://127.0.0.1"))
-            {
-                httpHandler.ServerCertificateCustomValidationCallback = 
-                    HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
-            }
-            
-            var httpClient = new HttpClient(httpHandler);
-            
-            // Configurar timeout
-            var timeout = _configuration.GetValue<int>("GrpcServer:Timeout", 30);
-            httpClient.Timeout = TimeSpan.FromSeconds(timeout);
-            
-            var channelOptions = new GrpcChannelOptions
-            {
-                HttpClient = httpClient,
-                DisposeHttpClient = true
-            };
-            
-            var channel = GrpcChannel.ForAddress(grpcServerUrl, channelOptions);
-            _grpcClient = new DashBirdService.DashBirdServiceClient(channel);
-            
-            _logger.LogInformation("Cliente gRPC configurado para: {GrpcServerUrl} com timeout de {Timeout}s", 
-                grpcServerUrl, timeout);
+            var grpcServerUrl = _configuration["GrpcServer:Url"] ?? "http://localhost:7001";
+            _logger.LogInformation("🔗 Cliente gRPC configurado e injetado via DI");
+            _logger.LogInformation("🔗 Conectando ao servidor gRPC em: {GrpcServerUrl}", grpcServerUrl);
         }
 
         public async Task<bool> TestConnectionAsync(string? databaseId = null)
         {
             try
             {
+                _logger.LogInformation("Iniciando teste de conexão gRPC para database: {DatabaseId}", databaseId ?? "default");
+                
                 var request = new TestConnectionRequest
                 {
                     DatabaseId = databaseId ?? "default"
                 };
 
-                var response = await _grpcClient.TestConnectionAsync(request);
-                _logger.LogInformation("gRPC TestConnection: {Success} - {Message}", response.Success, response.Message);
+                _logger.LogInformation("Enviando requisição gRPC para servidor...");
                 
+                // Usar timeout configurado ou padrão de 30 segundos
+                var timeoutSeconds = _configuration.GetValue<int>("GrpcServer:Timeout", 30);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+                var response = await _grpcClient.TestConnectionAsync(request, cancellationToken: cts.Token);
+                
+                _logger.LogInformation("gRPC TestConnection: {Success} - {Message}", response.Success, response.Message);
                 return response.Success;
+            }
+            catch (OperationCanceledException)
+            {
+                var timeoutSeconds = _configuration.GetValue<int>("GrpcServer:Timeout", 30);
+                _logger.LogError("Timeout na conexão gRPC - servidor não respondeu em {TimeoutSeconds} segundos", timeoutSeconds);
+                return false;
+            }
+            catch (Grpc.Core.RpcException grpcEx)
+            {
+                _logger.LogError(grpcEx, "Erro gRPC: {StatusCode} - {Detail}", grpcEx.StatusCode, grpcEx.Status.Detail);
+                return false;
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "Erro de conexão HTTP: {Message}", httpEx.Message);
+                return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao testar conexão via gRPC");
-                throw;
+                _logger.LogError(ex, "Erro ao testar conexão via gRPC. Detalhes: {ErrorType} - {ErrorMessage}", 
+                    ex.GetType().Name, ex.Message);
+                return false;
             }
         }
 

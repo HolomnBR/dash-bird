@@ -8,6 +8,7 @@ namespace FirebirdApi.Services
         Task StopStreamingAsync();
         Task SendResponseAsync(string commandId, object response);
         Task SendDatabaseSyncAsync(string syncType, string syncReason, List<Models.DatabaseConfig> databases);
+        Task<bool> IsNodeRegisteredAsync();
         Task TryReconnectWithStoredTokenAsync();
         object GetConnectionStatus();
         bool IsConnected { get; }

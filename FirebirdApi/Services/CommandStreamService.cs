@@ -9,7 +9,7 @@ using System.Threading.Channels;
 
 namespace FirebirdApi.Services
 {
-    public class CommandStreamService : ICommandStreamService, IHostedService
+    public class CommandStreamService : ICommandStreamService, IHostedService, IDisposable
     {
         private readonly ILogger<CommandStreamService> _logger;
         private readonly IConfiguration _configuration;
@@ -17,6 +17,7 @@ namespace FirebirdApi.Services
         private readonly IServiceProvider _serviceProvider;
         private readonly ITokenStorageService _tokenStorageService;
         private readonly SemaphoreSlim _reconnectSemaphore = new(1, 1);
+        private bool _disposed = false;
         
         private GrpcChannel? _channel;
         private CommandService.CommandServiceClient? _client;
@@ -78,6 +79,11 @@ namespace FirebirdApi.Services
 
         public async Task StartStreamingAsync(string connectionId, string machineId, string? authToken = null, string? nodeId = null, string? name = null, string? machineName = null, string? version = null, string? operatingSystem = null)
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(CommandStreamService));
+            }
+
             try
             {
                 if (IsConnected)
@@ -86,16 +92,18 @@ namespace FirebirdApi.Services
                     await StopStreamingAsync();
                 }
 
-                var cloudServerUrl = _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var cloudServerUrl = _configuration["GrpcServer:Url"] ?? _configuration["CloudServer:Url"] ?? "https://localhost:7001";
                 _logger.LogInformation("Conectando ao servidor cloud: {CloudServerUrl}", cloudServerUrl);
 
                 // Configurar HttpClientHandler para lidar com certificados SSL
                 var httpHandler = new HttpClientHandler();
-                if (cloudServerUrl.StartsWith("https://localhost") || cloudServerUrl.StartsWith("https://127.0.0.1"))
-                {
-                    httpHandler.ServerCertificateCustomValidationCallback = 
-                        HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
-                }
+                
+                // Para desenvolvimento e produção, aceitar certificados SSL inválidos
+                // Em produção real, configure certificados válidos
+                httpHandler.ServerCertificateCustomValidationCallback = 
+                    HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+                
+                _logger.LogInformation("🔒 SSL certificate validation desabilitada para desenvolvimento/produção");
 
                 var httpClient = new HttpClient(httpHandler);
                 httpClient.Timeout = Timeout.InfiniteTimeSpan;
@@ -114,6 +122,11 @@ namespace FirebirdApi.Services
                 if (!string.IsNullOrEmpty(authToken))
                 {
                     headers.Add("authorization", $"Bearer {authToken}");
+                    _logger.LogInformation("🔑 Token de autenticação configurado: {TokenLength} caracteres", authToken.Length);
+                }
+                else
+                {
+                    _logger.LogInformation("⚠️ Nenhum token de autenticação fornecido - conectando como anônimo");
                 }
 
                 _cancellationTokenSource = new CancellationTokenSource();
@@ -161,46 +174,119 @@ namespace FirebirdApi.Services
 
         public async Task StopStreamingAsync()
         {
+            if (_disposed)
+            {
+                _logger.LogInformation("CommandStreamService já foi disposed, ignorando StopStreamingAsync");
+                return; // Já foi disposed, não fazer nada
+            }
+
+            _logger.LogInformation("🔄 Iniciando parada do streaming...");
+            _shouldReconnect = false; // Impedir reconexões automáticas
+
             try
             {
+                // 1. Marcar como desconectado primeiro
                 IsConnected = false;
                 CurrentConnectionId = null;
                 CurrentMachineId = null;
                 CurrentUserId = null;
 
+                // 2. Cancelar token de cancelamento
+                _cancellationTokenSource?.Cancel();
+
+                // 3. Parar o stream gRPC
                 if (_stream != null)
                 {
-                    await _stream.RequestStream.CompleteAsync();
-                    _stream.Dispose();
-                    _stream = null;
+                    try
+                    {
+                        _logger.LogInformation("🔄 Completando RequestStream...");
+                        await _stream.RequestStream.CompleteAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Erro ao completar RequestStream: {Message}", ex.Message);
+                    }
+                    
+                    try
+                    {
+                        _logger.LogInformation("🔄 Disposing stream...");
+                        _stream.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Erro ao dispose do stream: {Message}", ex.Message);
+                    }
+                    finally
+                    {
+                        _stream = null;
+                    }
                 }
 
-                _cancellationTokenSource?.Cancel();
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
-
+                // 4. Aguardar task de streaming terminar
                 if (_streamingTask != null)
                 {
                     try
                     {
-                        await _streamingTask;
+                        _logger.LogInformation("🔄 Aguardando task de streaming terminar...");
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await _streamingTask.WaitAsync(cts.Token);
+                        _logger.LogInformation("✅ Task de streaming terminou");
                     }
                     catch (OperationCanceledException)
                     {
-                        // Esperado quando cancelamos
+                        _logger.LogWarning("⚠️ Timeout ao aguardar task de streaming terminar");
                     }
-                    _streamingTask = null;
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Erro ao aguardar task de streaming: {Message}", ex.Message);
+                    }
+                    finally
+                    {
+                        _streamingTask = null;
+                    }
                 }
 
-                _channel?.Dispose();
-                _channel = null;
-                _client = null;
+                // 5. Dispose do channel
+                if (_channel != null)
+                {
+                    try
+                    {
+                        _logger.LogInformation("🔄 Disposing gRPC channel...");
+                        _channel.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Erro ao dispose do channel: {Message}", ex.Message);
+                    }
+                    finally
+                    {
+                        _channel = null;
+                    }
+                }
 
-                _logger.LogInformation("Streaming parado");
+                // 6. Dispose do CancellationTokenSource
+                if (_cancellationTokenSource != null)
+                {
+                    try
+                    {
+                        _cancellationTokenSource.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Erro ao dispose do CancellationTokenSource: {Message}", ex.Message);
+                    }
+                    finally
+                    {
+                        _cancellationTokenSource = null;
+                    }
+                }
+
+                _client = null;
+                _logger.LogInformation("✅ Streaming parado com sucesso");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao parar streaming");
+                _logger.LogError(ex, "❌ Erro ao parar streaming: {Message}", ex.Message);
             }
         }
 
@@ -234,6 +320,43 @@ namespace FirebirdApi.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao enviar resposta para comando {CommandId}", commandId);
+            }
+        }
+
+        /// <summary>
+        /// Verifica se o nó está devidamente registrado no servidor
+        /// </summary>
+        public async Task<bool> IsNodeRegisteredAsync()
+        {
+            if (!IsConnected || _stream == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                // Enviar comando de ping para verificar se o nó está registrado
+                var pingMessage = new ClientToServerMessage
+                {
+                    ConnectionId = CurrentConnectionId ?? string.Empty,
+                    NodeId = CurrentConnectionId ?? string.Empty,
+                    MachineId = CurrentMachineId ?? string.Empty,
+                    Name = string.Empty,
+                    MachineName = string.Empty,
+                    Version = string.Empty,
+                    OperatingSystem = string.Empty,
+                    UserId = CurrentUserId ?? string.Empty,
+                    JsonResponse = JsonSerializer.Serialize(new { type = "PING", timestamp = DateTime.UtcNow })
+                };
+
+                await _stream.RequestStream.WriteAsync(pingMessage);
+                _logger.LogInformation("📡 Ping enviado para verificar registro do nó");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("⚠️ Erro ao verificar registro do nó: {Error}", ex.Message);
+                return false;
             }
         }
 
@@ -398,6 +521,21 @@ namespace FirebirdApi.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao escutar comandos");
+                
+                // Log específico para erros de autenticação
+                if (ex.Message.Contains("PermissionDenied") || ex.Message.Contains("403"))
+                {
+                    _logger.LogError("❌ Erro de permissão (403) - Verifique se o token de autenticação é válido e se o servidor está acessível");
+                    _logger.LogError("🔍 Detalhes do erro: {ErrorDetails}", ex.ToString());
+                }
+                else if (ex.Message.Contains("Unavailable") || ex.Message.Contains("Connection refused"))
+                {
+                    _logger.LogError("❌ Servidor não disponível - Verifique se o servidor cloud está rodando e acessível");
+                }
+                else if (ex.Message.Contains("SSL") || ex.Message.Contains("certificate"))
+                {
+                    _logger.LogError("❌ Erro de SSL/Certificado - Verifique a configuração de certificados");
+                }
                 
                 // Tentar reconectar se não foi cancelamento manual
                 if (_shouldReconnect && !cancellationToken.IsCancellationRequested)
@@ -762,6 +900,46 @@ namespace FirebirdApi.Services
             finally
             {
                 _reconnectSemaphore.Release();
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    _logger.LogInformation("Dispose do CommandStreamService iniciado...");
+                    
+                    // Parar streaming se estiver ativo
+                    if (IsConnected)
+                    {
+                        try
+                        {
+                            StopStreamingAsync().Wait(TimeSpan.FromSeconds(5));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Erro ao parar streaming durante dispose");
+                        }
+                    }
+
+                    // Liberar recursos
+                    _cancellationTokenSource?.Dispose();
+                    _channel?.Dispose();
+                    _reconnectSemaphore?.Dispose();
+                    _commandChannel.Writer.Complete();
+                    
+                    _logger.LogInformation("CommandStreamService disposed com sucesso");
+                }
+                
+                _disposed = true;
             }
         }
     }

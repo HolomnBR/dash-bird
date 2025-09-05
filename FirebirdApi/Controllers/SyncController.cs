@@ -76,7 +76,20 @@ namespace FirebirdApi.Controllers
                 {
                     _logger.LogInformation("✅ Nó registrado e streaming iniciado com sucesso - isAnonymous: {IsAnonymous}", isAnonymous);
                     
-                    // 2. Sincronizar databases automaticamente após registro do nó
+                    // 2. Aguardar um momento para o nó ser completamente registrado no servidor
+                    _logger.LogInformation("⏳ Aguardando 3 segundos para completar registro do nó no servidor...");
+                    await Task.Delay(3000);
+                    
+                    // 3. Verificar se o nó está devidamente registrado
+                    var isNodeRegistered = await _commandStreamService.IsNodeRegisteredAsync();
+                    if (!isNodeRegistered)
+                    {
+                        _logger.LogWarning("⚠️ Nó não está devidamente registrado, aguardando mais 2 segundos...");
+                        await Task.Delay(2000);
+                    }
+                    
+                    // 4. Sincronizar databases automaticamente após registro do nó
+                    _logger.LogInformation("🔄 Iniciando sincronização de databases após registro do nó...");
                     await SyncAllDatabasesToCloudAsync();
                     
                     return Ok(new { 
@@ -1393,6 +1406,25 @@ namespace FirebirdApi.Controllers
                     catch (Exception grpcEx)
                     {
                         _logger.LogError(grpcEx, "❌ Falha na sincronização via gRPC: {Error}", grpcEx.Message);
+                        
+                        // Se for erro de permissão, aguardar mais um pouco e tentar novamente
+                        if (grpcEx.Message.Contains("PermissionDenied") || grpcEx.Message.Contains("403"))
+                        {
+                            _logger.LogInformation("⏳ Erro de permissão detectado, aguardando mais 2 segundos e tentando novamente...");
+                            await Task.Delay(2000);
+                            
+                            try
+                            {
+                                await _commandStreamService.SendDatabaseSyncAsync("FULL_SYNC", "AUTO_SYNC_ON_NODE_REGISTRATION_RETRY", localDatabases);
+                                _logger.LogInformation("✅ Sincronização automática via gRPC (retry) concluída: {Count} databases", localDatabases.Count);
+                                return;
+                            }
+                            catch (Exception retryEx)
+                            {
+                                _logger.LogError(retryEx, "❌ Falha na sincronização via gRPC (retry): {Error}", retryEx.Message);
+                            }
+                        }
+                        
                         _logger.LogInformation("🔄 Tentando sincronização via HTTP como fallback...");
                     }
                 }
@@ -1475,6 +1507,24 @@ namespace FirebirdApi.Controllers
                     catch (Exception grpcEx)
                     {
                         _logger.LogWarning("⚠️ Falha ao enviar via gRPC, tentando HTTP: {Error}", grpcEx.Message);
+                        
+                        // Se for erro de permissão, aguardar um pouco e tentar novamente
+                        if (grpcEx.Message.Contains("PermissionDenied") || grpcEx.Message.Contains("403"))
+                        {
+                            _logger.LogInformation("⏳ Erro de permissão detectado, aguardando 1 segundo e tentando novamente...");
+                            await Task.Delay(1000);
+                            
+                            try
+                            {
+                                await _commandStreamService.SendDatabaseSyncAsync("SINGLE_DATABASE", "DATABASE_CREATED_RETRY", new List<Models.DatabaseConfig> { databaseConfig });
+                                _logger.LogInformation("✅ Database enviada via gRPC (retry) com sucesso: {DatabaseName}", databaseConfig.Name);
+                                return;
+                            }
+                            catch (Exception retryEx)
+                            {
+                                _logger.LogWarning("⚠️ Falha ao enviar via gRPC (retry), tentando HTTP: {Error}", retryEx.Message);
+                            }
+                        }
                     }
                 }
 

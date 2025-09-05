@@ -9,11 +9,13 @@ public class HealthController : ControllerBase
 {
     private readonly IGrpcClientService _grpcClientService;
     private readonly ILogger<HealthController> _logger;
+    private readonly IConfiguration _configuration;
 
-    public HealthController(IGrpcClientService grpcClientService, ILogger<HealthController> logger)
+    public HealthController(IGrpcClientService grpcClientService, ILogger<HealthController> logger, IConfiguration configuration)
     {
         _grpcClientService = grpcClientService;
         _logger = logger;
+        _configuration = configuration;
     }
 
     [HttpGet]
@@ -32,13 +34,16 @@ public class HealthController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("Testando conexão com servidor gRPC...");
+            var grpcServerUrl = _configuration["GrpcServer:Url"] ?? "http://localhost:7001";
+            _logger.LogInformation("Testando conexão com servidor gRPC em: {GrpcServerUrl}", grpcServerUrl);
             
+            // Teste direto de conectividade gRPC
             var isConnected = await _grpcClientService.TestConnectionAsync();
             
             return Ok(new
             {
                 grpc_connection = isConnected ? "connected" : "failed",
+                grpc_server_url = grpcServerUrl,
                 timestamp = DateTime.UtcNow,
                 message = isConnected ? "Conexão gRPC estabelecida com sucesso" : "Falha na conexão gRPC"
             });

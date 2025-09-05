@@ -2,6 +2,7 @@ using FirebirdApi.Models;
 using FirebirdApi.Services;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
+using Microsoft.Extensions.Hosting;
 // removed Filters due to incompatibility
 
 var builder = WebApplication.CreateBuilder(args);
@@ -77,6 +78,35 @@ builder.Services.AddScoped<IFirebirdService, FirebirdService>();
 // Registrar o serviço gRPC Client
 builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 
+// Registrar gRPC Client - CONFIGURAÇÃO DINÂMICA
+var grpcServerUrl = builder.Configuration["GrpcServer:Url"] ?? "http://localhost:7001";
+var isDevelopment = builder.Environment.IsDevelopment();
+
+builder.Services.AddGrpcClient<DashBirdServer.Protos.DashBirdService.DashBirdServiceClient>(options =>
+{
+    options.Address = new Uri(grpcServerUrl);
+    options.ChannelOptionsActions.Add(channelOptions =>
+    {
+        if (isDevelopment)
+        {
+            // Para desenvolvimento, aceitar certificados SSL inválidos
+            channelOptions.HttpHandler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+            };
+        }
+        else
+        {
+            // Para produção, usar configuração padrão (com SSL)
+            channelOptions.HttpHandler = new HttpClientHandler();
+        }
+    });
+});
+
+// Log da configuração
+Console.WriteLine($"🔗 Cliente gRPC configurado para: {grpcServerUrl}");
+Console.WriteLine($"🔗 Ambiente: {(isDevelopment ? "Desenvolvimento" : "Produção")}");
+
 // Registrar o serviço MachineId
 builder.Services.AddSingleton<IMachineIdService, MachineIdService>();
 
@@ -122,4 +152,50 @@ Console.WriteLine($"🚀 API iniciando na porta: {port}");
 app.Urls.Clear();
 app.Urls.Add(port);
 
+// Configurar shutdown graceful
+var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+// Configurar handlers de shutdown
+lifetime.ApplicationStopping.Register(async () =>
+{
+    logger.LogInformation("🛑 Aplicação recebeu sinal de parada...");
+    
+    try
+    {
+        // Aguardar shutdown dos serviços
+        var commandStreamService = app.Services.GetService<ICommandStreamService>();
+        if (commandStreamService is CommandStreamService cmdService)
+        {
+            logger.LogInformation("🔄 Parando CommandStreamService...");
+            
+            // Aguardar com timeout
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                await cmdService.StopStreamingAsync();
+                logger.LogInformation("✅ CommandStreamService parado com sucesso");
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning("⚠️ Timeout ao parar CommandStreamService");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "❌ Erro ao parar CommandStreamService");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Erro durante shutdown dos serviços");
+    }
+});
+
+lifetime.ApplicationStopped.Register(() =>
+{
+    logger.LogInformation("🛑 Aplicação parou completamente");
+});
+
+logger.LogInformation("🚀 Iniciando aplicação...");
 app.Run();

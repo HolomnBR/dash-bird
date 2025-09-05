@@ -1,36 +1,37 @@
-# Script para testar a conexão gRPC
-Write-Host "🧪 Testando conexão com servidor gRPC..." -ForegroundColor Cyan
+# Teste de conectividade gRPC
+Write-Host "🔍 Testando conectividade com servidor gRPC..." -ForegroundColor Yellow
 
-# URL do servidor gRPC
-$grpcServerUrl = "https://localhost:7001"
-$healthEndpoint = "https://localhost:5000/health/grpc"
+$grpcUrl = "https://dashbird-server-grpc.holomn.com.br"
+$cloudUrl = "https://dashbird-server.holomn.com.br"
 
-Write-Host "📡 Servidor gRPC: $grpcServerUrl" -ForegroundColor Yellow
-Write-Host "🏥 Endpoint de teste: $healthEndpoint" -ForegroundColor Yellow
-
-# Testar se o servidor gRPC está rodando
-Write-Host "`n🔍 Verificando se o servidor gRPC está acessível..." -ForegroundColor Cyan
+Write-Host "`n📡 Testando servidor gRPC: $grpcUrl" -ForegroundColor Cyan
 try {
-    $response = Invoke-WebRequest -Uri $grpcServerUrl -Method GET -TimeoutSec 5 -SkipCertificateCheck
-    Write-Host "✅ Servidor gRPC está respondendo" -ForegroundColor Green
+    $response = Invoke-WebRequest -Uri $grpcUrl -Method GET -TimeoutSec 10 -UseBasicParsing
+    Write-Host "✅ Servidor gRPC respondeu: $($response.StatusCode)" -ForegroundColor Green
+    Write-Host "Content-Type: $($response.Headers['Content-Type'])" -ForegroundColor Gray
 } catch {
-    Write-Host "❌ Servidor gRPC não está acessível: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "   Certifique-se de que o servidor DashBird está rodando em $grpcServerUrl" -ForegroundColor Yellow
+    Write-Host "❌ Erro ao conectar no servidor gRPC: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-# Testar endpoint de health da API
-Write-Host "`n🔍 Testando endpoint de health da API..." -ForegroundColor Cyan
+Write-Host "`n🌐 Testando servidor Cloud: $cloudUrl" -ForegroundColor Cyan
 try {
-    $response = Invoke-WebRequest -Uri "https://localhost:5000/health" -Method GET -TimeoutSec 5 -SkipCertificateCheck
-    Write-Host "✅ API está respondendo" -ForegroundColor Green
-    $healthData = $response.Content | ConvertFrom-Json
-    Write-Host "   Status: $($healthData.status)" -ForegroundColor Green
+    $response = Invoke-WebRequest -Uri $cloudUrl -Method GET -TimeoutSec 10 -UseBasicParsing
+    Write-Host "✅ Servidor Cloud respondeu: $($response.StatusCode)" -ForegroundColor Green
+    Write-Host "Content-Type: $($response.Headers['Content-Type'])" -ForegroundColor Gray
 } catch {
-    Write-Host "❌ API não está acessível: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "   Execute 'dotnet run' na pasta FirebirdApi para iniciar a API" -ForegroundColor Yellow
+    Write-Host "❌ Erro ao conectar no servidor Cloud: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-Write-Host "`n📋 Próximos passos:" -ForegroundColor Cyan
-Write-Host "1. Certifique-se de que o servidor DashBird está rodando em $grpcServerUrl" -ForegroundColor White
-Write-Host "2. Execute 'dotnet run' na pasta FirebirdApi para iniciar a API cliente" -ForegroundColor White
-Write-Host "3. Acesse $healthEndpoint para testar a conexão gRPC" -ForegroundColor White
+Write-Host "`n🔧 Testando endpoints específicos..." -ForegroundColor Cyan
+
+# Testar endpoint de status do servidor Cloud
+try {
+    $statusUrl = "$cloudUrl/status"
+    $response = Invoke-WebRequest -Uri $statusUrl -Method GET -TimeoutSec 10 -UseBasicParsing
+    Write-Host "✅ Status endpoint respondeu: $($response.StatusCode)" -ForegroundColor Green
+    Write-Host "Response: $($response.Content)" -ForegroundColor Gray
+} catch {
+    Write-Host "❌ Erro no status endpoint: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+Write-Host "`n🏁 Teste concluído!" -ForegroundColor Yellow
