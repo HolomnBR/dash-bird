@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using FirebirdApi.Protos;
 using System.Text.Json;
 using System.Threading.Channels;
+using System.Data;
 
 namespace FirebirdApi.Services
 {
@@ -627,6 +628,25 @@ namespace FirebirdApi.Services
                     case "PING":
                         response = new { message = "pong", timestamp = DateTime.UtcNow };
                         break;
+                    // Comandos Firebird SQL
+                    case "FIREBIRD_EXECUTE_SQL":
+                        response = await ExecuteFirebirdSqlCommandAsync(commandEvent);
+                        break;
+                    case "FIREBIRD_QUERY":
+                        response = await ExecuteFirebirdQueryAsync(commandEvent);
+                        break;
+                    case "FIREBIRD_LIST_TABLES":
+                        response = await ListFirebirdTablesAsync(commandEvent);
+                        break;
+                    case "FIREBIRD_LIST_COLUMNS":
+                        response = await ListFirebirdColumnsAsync(commandEvent);
+                        break;
+                    case "FIREBIRD_DATABASE_INFO":
+                        response = await GetFirebirdDatabaseInfoAsync(commandEvent);
+                        break;
+                    case "FIREBIRD_TEST_CONNECTION":
+                        response = await TestFirebirdConnectionAsync(commandEvent);
+                        break;
                     default:
                         response = new { error = "Comando não reconhecido", command = commandEvent.CommandText };
                         break;
@@ -917,6 +937,340 @@ namespace FirebirdApi.Services
                 _reconnectSemaphore.Release();
             }
         }
+
+        #region Firebird Command Handlers
+
+        private async Task<object> ExecuteFirebirdSqlCommandAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
+
+                // Usar a nova estrutura de metadados estruturada
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                
+                var command = new FirebirdCommand
+                {
+                    CommandText = metadata.Sql ?? "",
+                    Type = ParseCommandType(metadata.Type ?? "SELECT"),
+                    TimeoutSeconds = metadata.Timeout ?? 30,
+                    ValidateSyntax = metadata.Validate ?? true
+                };
+
+                var result = await firebirdCommandService.ExecuteCommandAsync(command, metadata.DatabaseId);
+
+                return new
+                {
+                    success = result.Success,
+                    commandId = result.CommandId,
+                    rowsAffected = result.RowsAffected,
+                    executionTime = result.ExecutionTime.TotalMilliseconds,
+                    executedAt = result.ExecutedAt,
+                    error = result.ErrorMessage,
+                    data = result.Data,
+                    databaseId = metadata.DatabaseId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao executar comando SQL Firebird: {CommandId}", commandEvent.CommandId);
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    commandId = commandEvent.CommandId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> ExecuteFirebirdQueryAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
+
+                // Usar a nova estrutura de metadados estruturada
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var query = metadata.Sql ?? "";
+
+                var result = await firebirdCommandService.ExecuteQueryAsync(query, metadata.DatabaseId);
+
+                return new
+                {
+                    success = result.Success,
+                    commandId = result.CommandId,
+                    rowCount = result.RowCount,
+                    columnNames = result.ColumnNames,
+                    rows = result.Rows,
+                    executionTime = result.ExecutionTime.TotalMilliseconds,
+                    executedAt = result.ExecutedAt,
+                    error = result.ErrorMessage,
+                    databaseId = metadata.DatabaseId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao executar query Firebird: {CommandId}", commandEvent.CommandId);
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    commandId = commandEvent.CommandId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> ListFirebirdTablesAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
+
+                // Usar a nova estrutura de metadados estruturada
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+
+                var result = await firebirdCommandService.ListTablesAsync(metadata.DatabaseId);
+
+                return new
+                {
+                    success = result.Success,
+                    commandId = result.CommandId,
+                    tables = result.Rows,
+                    tableCount = result.RowCount,
+                    executionTime = result.ExecutionTime.TotalMilliseconds,
+                    executedAt = result.ExecutedAt,
+                    error = result.ErrorMessage,
+                    databaseId = metadata.DatabaseId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao listar tabelas Firebird: {CommandId}", commandEvent.CommandId);
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    commandId = commandEvent.CommandId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> ListFirebirdColumnsAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
+
+                // Usar a nova estrutura de metadados estruturada
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var tableName = metadata.TableName ?? "";
+
+                if (string.IsNullOrEmpty(tableName))
+                {
+                    return new
+                    {
+                        success = false,
+                        error = "Nome da tabela é obrigatório",
+                        commandId = commandEvent.CommandId,
+                        timestamp = DateTime.UtcNow,
+                        databaseId = metadata.DatabaseId
+                    };
+                }
+
+                var result = await firebirdCommandService.ListTableColumnsAsync(tableName, metadata.DatabaseId);
+
+                return new
+                {
+                    success = result.Success,
+                    commandId = result.CommandId,
+                    tableName = tableName,
+                    columns = result.Rows,
+                    columnCount = result.RowCount,
+                    executionTime = result.ExecutionTime.TotalMilliseconds,
+                    executedAt = result.ExecutedAt,
+                    error = result.ErrorMessage,
+                    databaseId = metadata.DatabaseId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao listar colunas da tabela Firebird: {CommandId}", commandEvent.CommandId);
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    commandId = commandEvent.CommandId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> GetFirebirdDatabaseInfoAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
+
+                // Usar a nova estrutura de metadados estruturada
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+
+                var info = await firebirdCommandService.GetDatabaseInfoAsync(metadata.DatabaseId);
+
+                return new
+                {
+                    success = true,
+                    commandId = commandEvent.CommandId,
+                    databaseInfo = new
+                    {
+                        databaseName = info.DatabaseName,
+                        serverVersion = info.ServerVersion,
+                        databaseSize = info.DatabaseSize,
+                        tableCount = info.TableCount,
+                        isConnected = info.IsConnected,
+                        lastBackup = info.LastBackup,
+                        connectionString = info.ConnectionString
+                    },
+                    databaseId = metadata.DatabaseId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter informações da base Firebird: {CommandId}", commandEvent.CommandId);
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    commandId = commandEvent.CommandId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task<object> TestFirebirdConnectionAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
+
+                // Usar a nova estrutura de metadados estruturada
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+
+                var status = await firebirdCommandService.TestConnectionAsync(metadata.DatabaseId);
+
+                return new
+                {
+                    success = true,
+                    commandId = commandEvent.CommandId,
+                    connectionStatus = new
+                    {
+                        isConnected = status.IsConnected,
+                        serverVersion = status.ServerVersion,
+                        responseTime = status.ResponseTime.TotalMilliseconds,
+                        testedAt = status.TestedAt,
+                        error = status.ErrorMessage
+                    },
+                    databaseId = metadata.DatabaseId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao testar conexão Firebird: {CommandId}", commandEvent.CommandId);
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    commandId = commandEvent.CommandId,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private Dictionary<string, string> ParseCommandMetadata(string? metadata)
+        {
+            var result = new Dictionary<string, string>();
+
+            if (string.IsNullOrEmpty(metadata))
+                return result;
+
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(metadata);
+                if (json != null)
+                {
+                    foreach (var kvp in json)
+                    {
+                        result[kvp.Key] = kvp.Value?.ToString() ?? "";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Erro ao fazer parse dos metadados do comando: {Metadata}", metadata);
+            }
+
+            return result;
+        }
+
+        private async Task<Models.DatabaseConfig> GetDatabaseConfigAsync(string? databaseId)
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var databaseConfigService = scope.ServiceProvider.GetRequiredService<IDatabaseConfigService>();
+            
+            if (string.IsNullOrEmpty(databaseId))
+            {
+                return await databaseConfigService.GetDefaultDatabaseAsync() 
+                    ?? throw new InvalidOperationException("Nenhuma base de dados padrão configurada");
+            }
+            else
+            {
+                return await databaseConfigService.GetDatabaseByIdAsync(databaseId)
+                    ?? throw new InvalidOperationException($"Base de dados com ID '{databaseId}' não encontrada");
+            }
+        }
+
+        private object ConvertDataTableToJson(DataTable dt)
+        {
+            var rows = new List<Dictionary<string, object>>();
+            foreach (DataRow row in dt.Rows)
+            {
+                var dict = new Dictionary<string, object>();
+                foreach (DataColumn col in dt.Columns)
+                {
+                    dict[col.ColumnName] = row[col] == DBNull.Value ? null! : row[col];
+                }
+                rows.Add(dict);
+            }
+            return rows;
+        }
+
+        private FirebirdCommandType ParseCommandType(string type)
+        {
+            return type.ToUpperInvariant() switch
+            {
+                "SELECT" => FirebirdCommandType.Select,
+                "INSERT" => FirebirdCommandType.Insert,
+                "UPDATE" => FirebirdCommandType.Update,
+                "DELETE" => FirebirdCommandType.Delete,
+                "CREATE" => FirebirdCommandType.Create,
+                "ALTER" => FirebirdCommandType.Alter,
+                "DROP" => FirebirdCommandType.Drop,
+                "EXECUTE" => FirebirdCommandType.Execute,
+                _ => FirebirdCommandType.Other
+            };
+        }
+
+        #endregion
 
         public async Task TryReconnectWithStoredTokenAsync()
         {

@@ -1,0 +1,88 @@
+### Teste dos Comandos Firebird via gRPC
+### Este arquivo demonstra como testar os comandos Firebird implementados
+### NOTA: Estes comandos são executados via gRPC streaming, não via HTTP REST
+
+### 1. Teste de Conexão Firebird
+### Comando gRPC: FIREBIRD_TEST_CONNECTION
+### Metadados: {"databaseId": null}
+
+### 2. Listar Tabelas
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_LIST_TABLES",
+  "metadata": "{\"databaseId\": null}"
+}
+
+### 3. Consulta Simples
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_QUERY",
+  "metadata": "{\"sql\": \"SELECT RDB$RELATION_NAME FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG IS NULL LIMIT 5\", \"databaseId\": null}"
+}
+
+### 4. Executar Comando SQL Genérico
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"sql\": \"SELECT COUNT(*) as TOTAL_TABELAS FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG IS NULL\", \"type\": \"SELECT\", \"databaseId\": null}"
+}
+
+### 5. Obter Informações da Base de Dados
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_DATABASE_INFO",
+  "metadata": "{\"databaseId\": null}"
+}
+
+### 6. Listar Colunas de uma Tabela (substitua TABLE_NAME pela tabela desejada)
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_LIST_COLUMNS",
+  "metadata": "{\"tableName\": \"RDB$RELATIONS\", \"databaseId\": null}"
+}
+
+### 7. Teste de Comando com Timeout Personalizado
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"sql\": \"SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE\", \"type\": \"SELECT\", \"timeout\": 10, \"databaseId\": null}"
+}
+
+### 8. Teste de Validação de Segurança (deve falhar)
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"sql\": \"DROP DATABASE teste\", \"type\": \"DROP\", \"validate\": true, \"databaseId\": null}"
+}
+
+### 9. Teste com Validação Desabilitada (deve executar, mas falhar por comando inválido)
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"sql\": \"SELECT 1 as TESTE\", \"type\": \"SELECT\", \"validate\": false, \"databaseId\": null}"
+}
+
+### 10. Teste de Comando Não Reconhecido
+POST http://localhost:8000/api/streaming/test-command
+Content-Type: application/json
+
+{
+  "command": "COMANDO_INEXISTENTE",
+  "metadata": "{}"
+}

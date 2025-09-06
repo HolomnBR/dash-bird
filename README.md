@@ -83,6 +83,142 @@ graph TB
 - **Sistema Multi-usuário**: Autenticação JWT com suporte a nós anônimos
 - **Streaming Bidirecional**: Comunicação em tempo real via gRPC
 - **Gerenciamento de Nós**: Controle de múltiplas máquinas desktop conectadas
+#### **gRPC Services** (`http://localhost:7001`)
+- `DashBirdService` - Operações Firebird via gRPC
+- `CommandService` - Streaming bidirecional
+- `NodeRegistrationService` - Registro de nós
+
+### **Comandos gRPC do Servidor para Cliente**
+
+O sistema DashBird implementa um sistema de streaming bidirecional gRPC que permite ao servidor cloud enviar comandos para clientes desktop conectados em tempo real.
+
+#### **Como Funciona**
+- **Streaming Bidirecional**: O cliente mantém uma conexão persistente com o servidor
+- **Processamento Automático**: Os comandos são processados automaticamente pelo cliente
+- **Logs Completos**: Todas as interações são logadas no banco de dados
+- **Reconexão Automática**: O cliente tenta reconectar automaticamente em caso de desconexão
+
+#### **Comandos Disponíveis**
+
+##### **1. GET_SYSTEM_INFO**
+- **Descrição**: Retorna informações detalhadas do sistema operacional do cliente
+- **Resposta**: 
+  ```json
+  {
+    "machineId": "string",
+    "os": "string", 
+    "version": "string",
+    "processorCount": "number",
+    "workingSet": "number",
+    "timestamp": "datetime"
+  }
+  ```
+
+##### **2. GET_DATABASE_STATUS**
+- **Descrição**: Verifica o status da conexão com o banco de dados Firebird
+- **Resposta**:
+  ```json
+  {
+    "connected": "boolean",
+    "timestamp": "datetime"
+  }
+  ```
+
+##### **3. GET_DATABASES**
+- **Descrição**: Lista todas as configurações de bancos de dados do cliente
+- **Resposta**:
+  ```json
+  {
+    "databases": [
+      {
+        "id": "string",
+        "name": "string", 
+        "server": "string",
+        "database": "string",
+        "username": "string",
+        "port": "number",
+        "charset": "string",
+        "fileSizeBytes": "number",
+        "lastSizeCheck": "datetime",
+        "createdAt": "datetime",
+        "isActive": "boolean"
+      }
+    ],
+    "count": "number",
+    "timestamp": "datetime"
+  }
+  ```
+
+##### **4. SYNC_DATABASES**
+- **Descrição**: Solicita ao cliente que sincronize suas configurações de banco de dados com o servidor
+- **Funcionalidade**: O cliente envia automaticamente todos os dados de configuração de bancos via gRPC
+- **Resposta**:
+  ```json
+  {
+    "success": "boolean",
+    "message": "string",
+    "databasesCount": "number", 
+    "timestamp": "datetime"
+  }
+  ```
+
+##### **5. PING**
+- **Descrição**: Teste básico de conectividade
+- **Resposta**:
+  ```json
+  {
+    "message": "pong",
+    "timestamp": "datetime"
+  }
+  ```
+
+#### **Envio de Comandos via API REST**
+
+Os comandos podem ser enviados através da API REST do servidor:
+
+##### **Para uma conexão específica:**
+```http
+POST /api/Connection/{connectionId}/command
+Authorization: Bearer {seu-token}
+Content-Type: application/json
+
+{
+  "command": "GET_SYSTEM_INFO",
+  "metadata": "{\"priority\": \"high\"}"
+}
+```
+
+##### **Para todas as conexões de uma máquina:**
+```http
+POST /api/Connection/machine/{machineId}/command
+Authorization: Bearer {seu-token}
+Content-Type: application/json
+
+{
+  "command": "GET_DATABASE_STATUS"
+}
+```
+
+##### **Para todas as conexões de um usuário:**
+```http
+POST /api/Connection/user/{userId}/command
+Authorization: Bearer {seu-token}
+Content-Type: application/json
+
+{
+  "command": "PING"
+}
+```
+
+#### **Características do Sistema de Comandos**
+
+- **Autenticação JWT**: Suporte a autenticação via token JWT
+- **Sincronização de Dados**: Sistema integrado para sincronização de configurações de banco
+- **Monitoramento**: Rastreamento de comandos enviados e respostas recebidas
+- **Tratamento de Erros**: Sistema robusto de tratamento de erros e reconexão
+- **Logs Detalhados**: Logs completos de todas as operações para auditoria
+
+---
 
 ### 🌐 **DashBird Web Panel**
 

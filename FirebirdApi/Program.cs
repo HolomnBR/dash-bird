@@ -77,6 +77,9 @@ builder.Services.AddScoped<IDatabaseConfigService, DatabaseConfigService>();
 // Registrar o serviço Firebird (será configurado dinamicamente)
 builder.Services.AddScoped<IFirebirdService, FirebirdService>();
 
+// Registrar o serviço de comandos Firebird para gRPC
+builder.Services.AddScoped<IFirebirdCommandService, FirebirdCommandService>();
+
 // Registrar o serviço gRPC Client
 builder.Services.AddScoped<IGrpcClientService, GrpcClientService>();
 

@@ -1,0 +1,124 @@
+### Teste da Nova Estrutura de Metadados Estruturada para Comandos Firebird
+### Este arquivo demonstra como usar a nova estrutura de metadados com databaseId
+### NOTA: Estes comandos são enviados do servidor cloud para o nó desktop via gRPC streaming
+
+### 1. Teste de Consulta Simples com DatabaseId
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_QUERY",
+  "metadata": "{\"databaseId\": \"db-001\", \"sql\": \"SELECT COUNT(*) as TOTAL_USUARIOS FROM USUARIOS\"}"
+}
+
+### 2. Teste de Inserção com DatabaseId Específico
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"databaseId\": \"db-002\", \"sql\": \"INSERT INTO USUARIOS (NOME, EMAIL, ATIVO) VALUES ('João Silva', 'joao@email.com', 1)\", \"type\": \"INSERT\"}"
+}
+
+### 3. Teste de Listagem de Tabelas com DatabaseId
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_LIST_TABLES",
+  "metadata": "{\"databaseId\": \"db-001\"}"
+}
+
+### 4. Teste de Listagem de Colunas com DatabaseId e TableName
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_LIST_COLUMNS",
+  "metadata": "{\"databaseId\": \"db-001\", \"tableName\": \"USUARIOS\"}"
+}
+
+### 5. Teste de Informações da Base de Dados
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_DATABASE_INFO",
+  "metadata": "{\"databaseId\": \"db-001\"}"
+}
+
+### 6. Teste de Conexão com DatabaseId
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_TEST_CONNECTION",
+  "metadata": "{\"databaseId\": \"db-001\"}"
+}
+
+### 7. Teste de Comando com Timeout Personalizado
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"databaseId\": \"db-001\", \"sql\": \"SELECT * FROM USUARIOS WHERE ATIVO = 1\", \"type\": \"SELECT\", \"timeout\": 60, \"validate\": true}"
+}
+
+### 8. Teste de Comando com Validação Desabilitada
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"databaseId\": \"db-001\", \"sql\": \"SELECT * FROM USUARIOS\", \"type\": \"SELECT\", \"validate\": false}"
+}
+
+### 9. Teste de Comando sem DatabaseId (usa padrão)
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_QUERY",
+  "metadata": "{\"sql\": \"SELECT CURRENT_TIMESTAMP as AGORA FROM RDB$DATABASE\"}"
+}
+
+### 10. Teste de Comando com Parâmetros Adicionais
+POST http://localhost:7001/api/firebird/connection/{connectionId}/command
+Content-Type: application/json
+
+{
+  "command": "FIREBIRD_EXECUTE_SQL",
+  "metadata": "{\"databaseId\": \"db-001\", \"sql\": \"SELECT * FROM USUARIOS WHERE ID > ?\", \"type\": \"SELECT\", \"timeout\": 30, \"validate\": true, \"additionalParameters\": {\"minId\": 100, \"maxResults\": 50}}"
+}
+
+### Exemplos de Respostas Esperadas:
+
+### Resposta de Sucesso (FIREBIRD_QUERY):
+# {
+#   "success": true,
+#   "commandId": "test-query-001",
+#   "rowCount": 1,
+#   "columnNames": ["TOTAL_USUARIOS"],
+#   "rows": [{"TOTAL_USUARIOS": 150}],
+#   "executionTime": 45.2,
+#   "executedAt": "2024-01-01T10:00:00Z",
+#   "error": null,
+#   "databaseId": "db-001"
+# }
+
+### Resposta de Erro (DatabaseId não encontrado):
+# {
+#   "success": false,
+#   "commandId": "test-query-001",
+#   "error": "Base de dados com ID 'db-999' não encontrada",
+#   "timestamp": "2024-01-01T10:00:00Z"
+# }
+
+### Resposta de Erro (Tabela não encontrada):
+# {
+#   "success": false,
+#   "commandId": "test-query-001",
+#   "error": "Table 'TABELA_INEXISTENTE' não encontrada",
+#   "timestamp": "2024-01-01T10:00:00Z"
+# }
