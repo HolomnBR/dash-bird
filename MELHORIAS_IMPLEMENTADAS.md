@@ -179,3 +179,4 @@ Agora o sistema DashBird detecta corretamente:
 - ✅ **Sistema operacional real** em vez de valores hardcoded
 
 O processo de registro de nó agora é muito mais preciso e confiável! 🎉
+
