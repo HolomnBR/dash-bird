@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('system', {
     const info = await ipcRenderer.invoke('system:getInfo')
     return info as { deviceName: string; machineId: string }
   },
+  async getSystemInfo() {
+    const info = await ipcRenderer.invoke('system:getSystemInfo')
+    return info as { success: boolean; data?: any; message?: string }
+  },
   async getNodeConfig() {
     return (await ipcRenderer.invoke('nodeConfig:get')) as {
       nodeId: string
@@ -77,6 +81,7 @@ declare global {
     env: { isElectron: boolean }
     system: {
       getInfo: () => Promise<{ deviceName: string; machineId: string }>
+      getSystemInfo: () => Promise<{ success: boolean; data?: any; message?: string }>
       getNodeConfig: () => Promise<{
         nodeId: string
         machineId: string

@@ -1,11 +1,12 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, globalShortcut } from 'electron'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import Store from 'electron-store'
 import { randomUUID } from 'node:crypto'
-import { hostname } from 'os'
+import { hostname, platform, arch, release } from 'os'
 import { machineId } from 'node-machine-id'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { networkInterfaces } from 'node:os'
 import ApiManager from '../scripts/api-manager.js'
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
@@ -21,6 +22,152 @@ const shouldDisableGpu = argv.includes('--disable-gpu') || argv.includes('--safe
 // Controle para evitar registros duplicados do node
 let nodeRegistrationAttempted = false
 let nodeRegistrationInProgress = false
+
+// Funções utilitárias para detectar informações reais do sistema
+function getRealWindowsVersion(): string {
+  try {
+    // Usar a API do Windows para detectar a versão real
+    const { execSync } = require('child_process')
+    
+    // Tentar obter a versão do Windows via wmic
+    try {
+      const output = execSync('wmic os get Caption /value', { encoding: 'utf8', timeout: 5000 })
+      const lines = output.split('\n').filter((line: string) => line.includes('Caption='))
+      if (lines.length > 0) {
+        const version = lines[0].split('=')[1]?.trim()
+        if (version) {
+          console.log('✅ Versão real do Windows detectada:', version)
+          return version
+        }
+      }
+    } catch (wmicError: any) {
+      console.warn('⚠️ Erro ao usar wmic, tentando método alternativo:', wmicError.message)
+    }
+    
+    // Fallback: usar informações do sistema
+    const osRelease = release()
+    const majorVersion = parseInt(osRelease.split('.')[0])
+    
+    if (majorVersion >= 10) {
+      // Windows 10 ou superior
+      const buildNumber = parseInt(osRelease.split('.')[2])
+      if (buildNumber >= 22000) {
+        return 'Windows 11'
+      } else {
+        return 'Windows 10'
+      }
+    }
+    
+    return `Windows ${majorVersion}`
+  } catch (error) {
+    console.warn('⚠️ Erro ao detectar versão do Windows:', error)
+    return 'Windows'
+  }
+}
+
+function getRealSystemVersion(): string {
+  try {
+    const osRelease = release()
+    const majorVersion = parseInt(osRelease.split('.')[0])
+    const minorVersion = parseInt(osRelease.split('.')[1])
+    
+    if (platform() === 'win32') {
+      const buildNumber = parseInt(osRelease.split('.')[2])
+      if (buildNumber >= 22000) {
+        return '11' // Windows 11
+      } else {
+        return '10' // Windows 10
+      }
+    }
+    
+    return `${majorVersion}.${minorVersion}`
+  } catch (error) {
+    console.warn('⚠️ Erro ao detectar versão do sistema:', error)
+    return 'Unknown'
+  }
+}
+
+function getRealIPAddress(): string {
+  try {
+    const interfaces = networkInterfaces()
+    
+    // Priorizar interfaces ativas e não loopback
+    for (const [name, nets] of Object.entries(interfaces)) {
+      if (!nets) continue
+      
+      for (const net of nets) {
+        // Pular interfaces loopback e internas
+        if (net.internal || net.family !== 'IPv4') continue
+        
+        // Priorizar interfaces Ethernet e Wi-Fi
+        if (name.toLowerCase().includes('ethernet') || 
+            name.toLowerCase().includes('wi-fi') || 
+            name.toLowerCase().includes('wlan')) {
+          console.log('✅ IP real detectado:', net.address, 'via interface:', name)
+          return net.address
+        }
+      }
+    }
+    
+    // Fallback: primeira interface IPv4 não loopback
+    for (const [name, nets] of Object.entries(interfaces)) {
+      if (!nets) continue
+      
+      for (const net of nets) {
+        if (!net.internal && net.family === 'IPv4') {
+          console.log('✅ IP real detectado (fallback):', net.address, 'via interface:', name)
+          return net.address
+        }
+      }
+    }
+    
+    console.warn('⚠️ Nenhum IP real encontrado, usando localhost')
+    return '127.0.0.1'
+  } catch (error) {
+    console.warn('⚠️ Erro ao detectar IP real:', error)
+    return '127.0.0.1'
+  }
+}
+
+function getRealAppVersion(): string {
+  try {
+    const packagePath = join(__dirname, '../package.json')
+    const packageData = JSON.parse(readFileSync(packagePath, 'utf8'))
+    const version = packageData.version || '0.1.0'
+    console.log('✅ Versão real da aplicação detectada:', version)
+    return version
+  } catch (error) {
+    console.warn('⚠️ Erro ao ler versão do package.json:', error)
+    return '0.1.0'
+  }
+}
+
+function getRealOperatingSystem(): string {
+  const currentPlatform = platform()
+  
+  if (currentPlatform === 'win32') {
+    return getRealWindowsVersion()
+  } else if (currentPlatform === 'darwin') {
+    try {
+      const { execSync } = require('child_process')
+      const output = execSync('sw_vers -productName', { encoding: 'utf8', timeout: 3000 })
+      return output.trim() || 'macOS'
+    } catch (error) {
+      return 'macOS'
+    }
+  } else if (currentPlatform === 'linux') {
+    try {
+      const { execSync } = require('child_process')
+      const output = execSync('lsb_release -d', { encoding: 'utf8', timeout: 3000 })
+      const description = output.split(':')[1]?.trim()
+      return description || 'Linux'
+    } catch (error) {
+      return 'Linux'
+    }
+  }
+  
+  return 'Unknown'
+}
 
 // Configure paths and Chromium switches as early as possible (before app ready)
 try {
@@ -192,7 +339,7 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     })
     
     if (checkExistingResponse.ok) {
-      const existingResult = await checkExistingResponse.json()
+      const existingResult = await checkExistingResponse.json() as { success: boolean; data?: { exists: boolean } }
       if (existingResult.success && existingResult.data?.exists) {
         console.log('✅ Nó já existe localmente, obtendo dados existentes...')
         const getExistingResponse = await fetch(`${apiUrl}/api/LocalNode/by-machine/${encodeURIComponent(nodeConfig.machineName)}`, {
@@ -215,16 +362,24 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     
     // PASSO 2: Registrar nó localmente primeiro
     console.log('🔄 Registrando nó localmente...')
+    
+    // Detectar informações reais do sistema
+    const realOperatingSystem = getRealOperatingSystem()
+    const realSystemVersion = getRealSystemVersion()
+    
+    console.log('🔍 Informações reais detectadas:', {
+      operatingSystem: realOperatingSystem,
+      systemVersion: realSystemVersion,
+      ipAddress: '::1', // Mantendo localhost como estava
+      architecture: arch()
+    })
+    
     const localNodeData = {
       machineName: nodeConfig.machineName,
-      operatingSystem: process.platform === 'win32' ? 'Windows 11 Pro' : 
-                      process.platform === 'darwin' ? 'macOS' : 
-                      process.platform === 'linux' ? 'Linux' : 'Unknown',
-      systemVersion: process.platform === 'win32' ? '11' : 
-                    process.platform === 'darwin' ? '14' : 
-                    process.platform === 'linux' ? 'Ubuntu 22.04' : 'Unknown',
-      architecture: process.arch,
-      ipAddress: '::1',
+      operatingSystem: realOperatingSystem,
+      systemVersion: realSystemVersion,
+      architecture: arch(),
+      ipAddress: '::1', // Mantendo localhost como estava
       port: 8000
     }
     
@@ -246,18 +401,20 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     
     // PASSO 3: Registrar no cloud (Sync)
     console.log('🌐 Registrando nó no cloud...')
+    
+    // Detectar versão real da aplicação
+    const realAppVersion = getRealAppVersion()
+    
     const nodeRegistrationData = {
       nodeId: nodeConfig.nodeId, // Usar o nodeId do Electron como connectionId
       name: nodeConfig.alias || `Desktop Node (${nodeConfig.machineName})` || `Node-${nodeConfig.nodeId.slice(0, 8)}`,
       machineName: nodeConfig.machineName, // Incluir machineName explicitamente
       machineId: nodeConfig.machineId,
-      ipAddress: '::1',
+      ipAddress: getRealIPAddress(), // Usar IP real detectado
       port: 5000,
       databasePath: null,
-      version: '2.1.3',
-      operatingSystem: process.platform === 'win32' ? 'Windows 11 Pro' : 
-                      process.platform === 'darwin' ? 'macOS' : 
-                      process.platform === 'linux' ? 'Linux' : 'Unknown'
+      version: realAppVersion, // Usar versão real da aplicação
+      operatingSystem: realOperatingSystem // Usar SO real detectado
     }
     
     console.log('🔄 Registrando node no cloud (registro + streaming):', nodeRegistrationData)
@@ -390,6 +547,30 @@ ipcMain.handle('system:getInfo', async () => {
   return result
 })
 
+ipcMain.handle('system:getSystemInfo', async () => {
+  console.log('📡 Handler system:getSystemInfo chamado')
+  try {
+    const response = await fetch('http://localhost:8000/api/DatabaseConfig/system-info', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Handler system:getSystemInfo retornando:', result)
+      return result
+    } else {
+      console.error('❌ Erro ao obter informações do sistema da API:', response.status)
+      return { success: false, message: 'Erro ao obter informações do sistema' }
+    }
+  } catch (error) {
+    console.error('❌ Erro ao obter informações do sistema:', error)
+    return { success: false, message: 'Erro de conexão com a API' }
+  }
+})
+
 ipcMain.handle('nodeConfig:get', async () => {
   console.log('📡 Handler nodeConfig:get chamado')
   const info = await (async () => {
@@ -448,6 +629,11 @@ ipcMain.handle('registerNode', async (_event, databasePath?: string) => {
     
     await registerNodeAndStartStreaming(cfg, user?.id)
     
+    // Detectar informações reais para retorno
+    const realOperatingSystem = getRealOperatingSystem()
+    const realAppVersion = getRealAppVersion()
+    const realIPAddress = getRealIPAddress()
+    
     // Retornar informações do nó registrado
     return {
       success: true,
@@ -456,13 +642,11 @@ ipcMain.handle('registerNode', async (_event, databasePath?: string) => {
         name: cfg.alias || `Desktop Node (${cfg.machineName})`,
         machineId: cfg.machineId,
         machineName: cfg.machineName,
-        ipAddress: '::1',
+        ipAddress: realIPAddress,
         port: 5000,
         databasePath: databasePath || null,
-        version: '2.1.3',
-        operatingSystem: process.platform === 'win32' ? 'Windows' : 
-                        process.platform === 'darwin' ? 'macOS' : 
-                        process.platform === 'linux' ? 'Linux' : 'Unknown',
+        version: realAppVersion,
+        operatingSystem: realOperatingSystem,
         lastSeen: new Date().toISOString(),
         createdAt: cfg.createdAt,
         isActive: true
@@ -765,6 +949,23 @@ console.log('✅ Handlers IPC registrados com sucesso')
 app.whenReady().then(async () => {
   createWindow()
 
+  // Limpar apenas dados relacionados ao nó local do localStorage na inicialização
+  if (mainWindow) {
+    mainWindow.webContents.once('dom-ready', () => {
+      mainWindow?.webContents.executeJavaScript(`
+        // Limpar apenas dados relacionados ao nó local
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_id');
+        localStorage.removeItem('user_email');
+        localStorage.removeItem('user_data');
+        localStorage.removeItem('connected_nodes');
+        localStorage.removeItem('anonymous_token');
+        localStorage.removeItem('device.alias');
+        console.log('🧹 Dados do nó local removidos do localStorage');
+      `);
+    });
+  }
+
   // Inicializar o ApiManager
   apiManager.init()
 
@@ -777,16 +978,8 @@ app.whenReady().then(async () => {
     console.log('⏳ Aguardando API estar pronta...')
     await new Promise(resolve => setTimeout(resolve, 3000))
     
-    // Registrar o nó automaticamente após a API estar pronta
-    console.log('🚀 Registrando nó automaticamente...')
-    try {
-      const cfg = getOrCreateNodeConfig()
-      const user = await getLoggedUser()
-      await registerNodeAndStartStreaming(cfg, user?.id, true) // forceRegister = true
-      console.log('✅ Nó registrado automaticamente com sucesso!')
-    } catch (regError) {
-      console.error('❌ Erro ao registrar nó automaticamente:', regError instanceof Error ? regError.message : String(regError))
-    }
+    console.log('✅ API Firebird iniciada com sucesso!')
+    console.log('📝 Nota: O registro do nó será feito apenas quando solicitado pelo cliente')
   } catch (error) {
     console.error('❌ Erro ao verificar/iniciar API:', error instanceof Error ? error.message : String(error))
   }

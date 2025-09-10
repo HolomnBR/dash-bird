@@ -55,13 +55,18 @@ namespace FirebirdApi.Controllers
                     ? request.Architecture 
                     : _systemInfoService.GetArchitecture();
 
+                _logger.LogInformation("📥 Dados recebidos - MachineName: {MachineName}, OperatingSystem: {OperatingSystem}, SystemVersion: {SystemVersion}, Architecture: {Architecture}", 
+                    request.MachineName, operatingSystem, systemVersion, architecture);
+
                 // Verificar se já existe nó para esta máquina
                 var existingNode = await _localNodeService.GetLocalNodeByMachineNameAsync(request.MachineName);
                 
                 LocalNode node;
                 if (existingNode != null)
                 {
-                    // Atualizar nó existente
+                    // Nó já existe - apenas atualizar propriedades do sistema
+                    _logger.LogInformation("Nó existente encontrado para {MachineName}, atualizando propriedades do sistema", request.MachineName);
+                    
                     existingNode.OperatingSystem = operatingSystem;
                     existingNode.SystemVersion = systemVersion;
                     existingNode.Architecture = architecture;
@@ -75,7 +80,9 @@ namespace FirebirdApi.Controllers
                 }
                 else
                 {
-                    // Criar novo nó
+                    // Nó não existe - criar novo nó
+                    _logger.LogInformation("Criando novo nó para {MachineName}", request.MachineName);
+                    
                     node = new LocalNode
                     {
                         Id = Guid.NewGuid().ToString(),

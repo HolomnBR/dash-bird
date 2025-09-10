@@ -31,7 +31,7 @@ export function Home() {
           if (cancelled) return
           setDeviceName(info.deviceName || '')
           setMachineId(info.machineId || '')
-          setAlias(localStorage.getItem('device.alias') || '')
+          setAlias('')
         } catch {}
       }
     })()

@@ -37,6 +37,7 @@ namespace FirebirdApi.Services
         {
             try
             {
+#if WINDOWS
                 // Tentar obter informações mais detalhadas do Windows
                 using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
                 {
@@ -45,14 +46,45 @@ namespace FirebirdApi.Services
                         var productName = key.GetValue("ProductName")?.ToString();
                         if (!string.IsNullOrEmpty(productName))
                         {
+                            // Verificar se é Windows 11 baseado no build number
+                            var buildNumber = key.GetValue("CurrentBuild")?.ToString();
+                            if (!string.IsNullOrEmpty(buildNumber) && int.TryParse(buildNumber, out int build))
+                            {
+                                if (build >= 22000)
+                                {
+                                    return "Windows 11";
+                                }
+                                else if (build >= 10240)
+                                {
+                                    return "Windows 10";
+                                }
+                            }
+                            
                             return productName;
                         }
                     }
                 }
+#endif
                 
-                // Fallback para versão básica
+                // Fallback: usar informações do sistema para detectar Windows 10 vs 11
                 var osVersion = Environment.OSVersion;
-                return $"Windows {osVersion.Version.Major}.{osVersion.Version.Minor}";
+                var majorVersion = osVersion.Version.Major;
+                var minorVersion = osVersion.Version.Minor;
+                var osBuildNumber = osVersion.Version.Build;
+                
+                if (majorVersion == 10)
+                {
+                    if (osBuildNumber >= 22000)
+                    {
+                        return "Windows 11";
+                    }
+                    else
+                    {
+                        return "Windows 10";
+                    }
+                }
+                
+                return $"Windows {majorVersion}.{minorVersion}";
             }
             catch
             {
@@ -125,8 +157,34 @@ namespace FirebirdApi.Services
 
         public string GetSystemVersion()
         {
-            // Retornar a versão do aplicativo Dash Bird
-            return "2.1.3";
+            try
+            {
+                // Tentar ler a versão do arquivo de projeto
+                var projectPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "FirebirdApi.csproj");
+                if (File.Exists(projectPath))
+                {
+                    var projectContent = File.ReadAllText(projectPath);
+                    var versionMatch = System.Text.RegularExpressions.Regex.Match(projectContent, @"<Version>([^<]+)</Version>");
+                    if (versionMatch.Success)
+                    {
+                        return versionMatch.Groups[1].Value;
+                    }
+                }
+                
+                // Fallback: tentar ler do assembly
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var version = assembly.GetName().Version;
+                if (version != null)
+                {
+                    return $"{version.Major}.{version.Minor}.{version.Build}";
+                }
+                
+                return "2.1.3"; // Fallback final
+            }
+            catch
+            {
+                return "2.1.3"; // Fallback em caso de erro
+            }
         }
 
         public string GetMachineName()

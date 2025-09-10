@@ -56,7 +56,7 @@ export const useLocalNode = (): UseLocalNodeReturn => {
       const result = await localStorageService.saveLocalNode(nodeData);
       
       if (result.success && result.data) {
-        setLocalNode(result.data);
+        setLocalNode(result.data as unknown as LocalNode);
         return true;
       } else {
         setError(result.message || 'Erro ao salvar nó local');
@@ -79,8 +79,8 @@ export const useLocalNode = (): UseLocalNodeReturn => {
       const result = await localStorageService.getLocalNodeByMachine(machineName);
       
       if (result.success && result.data) {
-        setLocalNode(result.data);
-        return result.data;
+        setLocalNode(result.data as unknown as LocalNode);
+        return result.data as unknown as LocalNode;
       } else {
         setError(result.message || 'Nó local não encontrado');
         return null;
@@ -102,7 +102,7 @@ export const useLocalNode = (): UseLocalNodeReturn => {
       const result = await localStorageService.getAllLocalNodes();
       
       if (result.success && result.data) {
-        return result.data;
+        return result.data as unknown as LocalNode[];
       } else {
         setError(result.message || 'Erro ao obter nós locais');
         return [];
@@ -134,8 +134,8 @@ export const useLocalNode = (): UseLocalNodeReturn => {
       const result = await localStorageService.getSystemInfoAndSaveNode();
       
       if (result.success && result.data) {
-        setLocalNode(result.data);
-        return result.data;
+        setLocalNode(result.data as unknown as LocalNode);
+        return result.data as unknown as LocalNode;
       } else {
         setError(result.message || 'Erro ao obter informações do sistema e salvar nó');
         return null;
@@ -159,15 +159,48 @@ export const useLocalNode = (): UseLocalNodeReturn => {
   useEffect(() => {
     const initializeLocalNode = async () => {
       try {
-        // Tentar obter informações do sistema e salvar nó
-        await getSystemInfoAndSaveNode();
+        // Usar o handler IPC para obter informações do sistema
+        if (window.system && 'getSystemInfo' in window.system) {
+          const systemInfo = await (window.system as any).getSystemInfo();
+          
+          if (systemInfo.success && systemInfo.data) {
+            const { machineName, operatingSystem, systemVersion, architecture } = systemInfo.data;
+            
+            // Verificar se já existe nó para esta máquina
+            const hasNodeResult = await hasLocalNode(machineName);
+            
+            if (hasNodeResult) {
+              // Nó já existe, obter dados atuais
+              console.log('🔍 Nó já existe, obtendo dados atuais...');
+              await getLocalNodeByMachine(machineName);
+            } else {
+              // Criar novo nó com informações do sistema
+              console.log('🆕 Criando novo nó com dados:', {
+                machineName,
+                operatingSystem,
+                systemVersion,
+                architecture
+              });
+              
+              const nodeData = {
+                machineName,
+                operatingSystem,
+                systemVersion,
+                architecture,
+                port: 8000
+              };
+
+              await saveLocalNode(nodeData);
+            }
+          }
+        }
       } catch (err) {
         console.error('Erro ao inicializar nó local:', err);
       }
     };
 
     initializeLocalNode();
-  }, [getSystemInfoAndSaveNode]);
+  }, [hasLocalNode, getLocalNodeByMachine, saveLocalNode]);
 
   return {
     localNode,

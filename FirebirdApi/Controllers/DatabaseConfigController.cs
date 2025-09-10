@@ -16,19 +16,55 @@ namespace FirebirdApi.Controllers
         private readonly IConfiguration _configuration;
         private readonly ILogger<DatabaseConfigController> _logger;
         private readonly IMachineIdService _machineIdService;
+        private readonly ISystemInfoService _systemInfoService;
 
         public DatabaseConfigController(
             IDatabaseConfigService configService,
             HttpClient httpClient,
             IConfiguration configuration,
             ILogger<DatabaseConfigController> logger,
-            IMachineIdService machineIdService)
+            IMachineIdService machineIdService,
+            ISystemInfoService systemInfoService)
         {
             _configService = configService;
             _httpClient = httpClient;
             _configuration = configuration;
             _logger = logger;
             _machineIdService = machineIdService;
+            _systemInfoService = systemInfoService;
+        }
+
+        /// <summary>
+        /// Obter informações do sistema operacional
+        /// </summary>
+        /// <remarks>Retorna informações detalhadas do sistema operacional, versão, arquitetura e nome da máquina.</remarks>
+        [HttpGet("system-info")]
+        [SwaggerOperation(
+            Summary = "Obter informações do sistema",
+            Description = "Retorna informações detalhadas do sistema operacional, versão, arquitetura e nome da máquina."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        public IActionResult GetSystemInfo()
+        {
+            try
+            {
+                var systemInfo = new
+                {
+                    machineName = Environment.MachineName,
+                    operatingSystem = _systemInfoService.GetOperatingSystem(), // Windows 10, Windows 11, etc.
+                    systemVersion = _systemInfoService.GetSystemVersion(), // Versão da aplicação (2.1.3, etc.)
+                    architecture = _systemInfoService.GetArchitecture(),
+                    timestamp = DateTime.UtcNow
+                };
+
+                return Ok(new { success = true, data = systemInfo });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter informações do sistema");
+                return BadRequest(new { success = false, message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -143,45 +179,6 @@ namespace FirebirdApi.Controllers
             }
         }
 
-        /// <summary>
-        /// Obter informações do sistema (para teste do SystemInfoService)
-        /// </summary>
-        [HttpGet("system-info")]
-        [SwaggerOperation(Summary = "Obter informações do sistema", Description = "Retorna informações detalhadas do sistema operacional e versão.")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public IActionResult GetSystemInfo()
-        {
-            try
-            {
-                var systemInfoService = HttpContext.RequestServices.GetRequiredService<ISystemInfoService>();
-                
-                var systemInfo = new
-                {
-                    OperatingSystem = systemInfoService.GetOperatingSystem(),
-                    SystemVersion = systemInfoService.GetSystemVersion(),
-                    MachineName = systemInfoService.GetMachineName(),
-                    Architecture = systemInfoService.GetArchitecture(),
-                    Timestamp = DateTime.UtcNow
-                };
-
-                return Ok(new
-                {
-                    success = true,
-                    data = systemInfo,
-                    message = "Informações do sistema obtidas com sucesso"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Erro ao obter informações do sistema");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = $"Erro ao obter informações do sistema: {ex.Message}"
-                });
-            }
-        }
 
         /// <summary>
         /// Testa a conexão com uma base de dados específica

@@ -33,16 +33,7 @@ export class LocalStorageService {
         })
       });
 
-      if (response.ok) {
-        // Também salvar no localStorage como backup
-        localStorage.setItem('auth_token', token);
-        localStorage.setItem('user_id', userId);
-        if (userEmail) {
-          localStorage.setItem('user_email', userEmail);
-        }
-        return true;
-      }
-      return false;
+      return response.ok;
     } catch (error) {
       console.error('Erro ao salvar token:', error);
       return false;
@@ -54,7 +45,6 @@ export class LocalStorageService {
    */
   async getToken(): Promise<string | null> {
     try {
-      // Primeiro tentar API
       const response = await fetch(`${this.baseUrl}/Token/get-token`, {
         method: 'GET',
         headers: {
@@ -64,19 +54,13 @@ export class LocalStorageService {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.token) {
-          // Atualizar localStorage como backup
-          localStorage.setItem('auth_token', data.token);
-          return data.token;
-        }
+        return data.token || null;
       }
 
-      // Fallback para localStorage
-      return localStorage.getItem('auth_token');
+      return null;
     } catch (error) {
       console.error('Erro ao obter token:', error);
-      // Fallback para localStorage
-      return localStorage.getItem('auth_token');
+      return null;
     }
   }
 
@@ -92,24 +76,9 @@ export class LocalStorageService {
         }
       });
 
-      // Limpar localStorage também
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user_id');
-      localStorage.removeItem('user_email');
-      localStorage.removeItem('user_data');
-      localStorage.removeItem('connected_nodes');
-      localStorage.removeItem('anonymous_token');
-
       return response.ok;
     } catch (error) {
       console.error('Erro ao limpar token:', error);
-      // Limpar localStorage mesmo se a API falhar
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user_id');
-      localStorage.removeItem('user_email');
-      localStorage.removeItem('user_data');
-      localStorage.removeItem('connected_nodes');
-      localStorage.removeItem('anonymous_token');
       return false;
     }
   }
@@ -229,6 +198,8 @@ export class LocalStorageService {
     port?: number;
   }): Promise<{ success: boolean; data?: Record<string, unknown>; message?: string }> {
     try {
+      console.log('📤 Enviando dados do nó para API:', nodeData);
+      
       const response = await fetch(`${this.baseUrl}/LocalNode/save-local-node`, {
         method: 'POST',
         headers: {
@@ -239,9 +210,11 @@ export class LocalStorageService {
 
       if (response.ok) {
         const result = await response.json();
+        console.log('✅ Resposta da API:', result);
         return result;
       } else {
         const error = await response.json();
+        console.error('❌ Erro da API:', error);
         return { success: false, message: error.message || 'Erro ao salvar nó local' };
       }
     } catch (error) {
