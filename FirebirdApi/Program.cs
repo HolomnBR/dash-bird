@@ -109,7 +109,7 @@ builder.Services.AddGrpcClient<DashBirdServer.Protos.DashBirdService.DashBirdSer
 });
 
 // Log da configuração
-Console.WriteLine($"🔗 Cliente gRPC configurado para: {grpcServerUrl}");
+Console.WriteLine($"🔗 XXXCliente gRPC configurado para: {grpcServerUrl}");
 Console.WriteLine($"🔗 Ambiente: {(isDevelopment ? "Desenvolvimento" : "Produção")}");
 
 // Registrar o serviço MachineId
@@ -134,6 +134,9 @@ builder.Services.AddScoped<ISnapshotService, SnapshotService>();
 
 // Registrar o serviço de armazenamento de tokens (manter compatibilidade)
 builder.Services.AddScoped<ITokenStorageService, TokenStorageService>();
+
+// Registrar o gerenciador de nós locais (scoped para compatibilidade com DbContext)
+builder.Services.AddScoped<LocalNodeManagerService>();
 
 // Registrar IHttpContextAccessor para o AuthService (deve vir antes do AuthService)
 builder.Services.AddHttpContextAccessor();

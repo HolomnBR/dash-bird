@@ -1,6 +1,6 @@
 # 🚀 Correções do CI/CD - Problema de Assinatura de Código Resolvido
 
-## 🎯 Problema Identificado
+## 🎯 Problema Identificado 
 
 O build estava falhando na etapa de assinatura de código com o erro:
 

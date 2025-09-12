@@ -30,20 +30,46 @@ export const AnonymousStatus: React.FC = () => {
 
   const loadAnonymousNodeInfo = async () => {
     try {
-      // Simular carregamento de informações do nó anônimo
-      // Em uma implementação real, isso viria do localStorage ou de uma API
       const storedToken = localStorage.getItem('anonymous_token')
-      if (storedToken && !isAuthenticated) {
-        // Aqui você faria uma chamada para obter as informações do nó anônimo
-        // Por enquanto, vamos simular
-        setAnonymousNode({
-          id: 'anonymous-node-id',
-          name: 'Nó Anônimo',
-          machineId: 'machine-id',
-          anonymousToken: storedToken,
-          anonymousExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
-          createdAt: new Date().toISOString()
-        })
+      const storedNodeId = localStorage.getItem('anonymous_node_id')
+      
+      if (storedToken && storedNodeId && !isAuthenticated) {
+        // Obter informações reais do nó anônimo via API
+        try {
+          const response = await fetch('http://localhost:8000/api/Auth/anonymous/info/' + storedToken)
+          if (response.ok) {
+            const nodeInfo = await response.json()
+            setAnonymousNode({
+              id: nodeInfo.id,
+              name: nodeInfo.name,
+              machineId: nodeInfo.machineId,
+              anonymousToken: storedToken,
+              anonymousExpiresAt: nodeInfo.anonymousExpiresAt,
+              createdAt: nodeInfo.createdAt
+            })
+          } else {
+            // Se não conseguir obter info da API, usar dados básicos
+            setAnonymousNode({
+              id: storedNodeId,
+              name: 'Nó Anônimo',
+              machineId: 'unknown',
+              anonymousToken: storedToken,
+              anonymousExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
+              createdAt: new Date().toISOString()
+            })
+          }
+        } catch (apiError) {
+          console.warn('Erro ao obter informações do nó anônimo via API, usando dados básicos:', apiError)
+          // Fallback para dados básicos
+          setAnonymousNode({
+            id: storedNodeId || 'unknown',
+            name: 'Nó Anônimo',
+            machineId: 'unknown',
+            anonymousToken: storedToken,
+            anonymousExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
+            createdAt: new Date().toISOString()
+          })
+        }
       }
     } catch (error) {
       console.error('Erro ao carregar informações do nó anônimo:', error)

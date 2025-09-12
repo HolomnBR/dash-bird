@@ -299,9 +299,49 @@ export class LocalStorageService {
   }
 
   /**
-   * Obter informações do sistema e salvar nó local
+   * Garantir que existe um nó local para a máquina atual (método unificado)
    */
-  async getSystemInfoAndSaveNode(): Promise<{ success: boolean; data?: Record<string, unknown>; message?: string }> {
+  async ensureLocalNodeExists(machineName: string, machineId?: string): Promise<{ success: boolean; data?: Record<string, unknown>; message?: string }> {
+    try {
+      const requestData = {
+        machineName,
+        ...(machineId && { machineId })
+      };
+
+      console.log('🔍 Garantindo existência do nó local:', requestData);
+
+      const response = await fetch(`${this.baseUrl}/LocalNode/ensure-exists`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Erro ao garantir nó local:', errorText);
+        return { success: false, message: `Erro ao garantir nó local: ${response.status}` };
+      }
+
+      const result = await response.json();
+      console.log('✅ Nó local garantido:', result);
+      
+      return {
+        success: result.success,
+        data: result.data,
+        message: result.message
+      };
+    } catch (error) {
+      console.error('Erro ao garantir existência do nó local:', error);
+      return { success: false, message: 'Erro ao garantir existência do nó local' };
+    }
+  }
+
+  /**
+   * Obter informações do sistema e garantir nó local (método unificado)
+   */
+  async getSystemInfoAndSaveNode(machineId?: string): Promise<{ success: boolean; data?: Record<string, unknown>; message?: string }> {
     try {
       // Primeiro, obter informações do sistema
       const systemInfoResponse = await fetch(`${this.baseUrl}/DatabaseConfig/system-info`, {
@@ -321,31 +361,13 @@ export class LocalStorageService {
         return { success: false, message: 'Dados do sistema não disponíveis' };
       }
 
-      // Extrair informações do sistema
-      const { operatingSystem, systemVersion, machineName, architecture } = systemInfo.data;
+      // Extrair nome da máquina
+      const { machineName } = systemInfo.data;
 
-      // Verificar se já existe nó para esta máquina
-      const hasNodeResult = await this.hasLocalNode(machineName);
-      
-      if (hasNodeResult.success && hasNodeResult.data?.exists) {
-        // Nó já existe, obter dados atuais
-        const existingNodeResult = await this.getLocalNodeByMachine(machineName);
-        return existingNodeResult;
-      } else {
-        // Criar novo nó com informações do sistema
-        const nodeData = {
-          machineName,
-          operatingSystem,
-          systemVersion,
-          architecture,
-          port: 8000
-        };
-
-        const saveResult = await this.saveLocalNode(nodeData);
-        return saveResult;
-      }
+      // Garantir que existe um nó local (método unificado)
+      return await this.ensureLocalNodeExists(machineName, machineId);
     } catch (error) {
-      console.error('Erro ao obter informações do sistema e salvar nó:', error);
+      console.error('Erro ao obter informações do sistema e garantir nó:', error);
       return { success: false, message: 'Erro ao processar informações do sistema' };
     }
   }

@@ -255,35 +255,62 @@ namespace FirebirdApi.Services
         {
             try
             {
-                _logger.LogInformation("Registrando nó anônimo: {MachineId}", request.MachineId);
+                _logger.LogInformation("Registrando nó anônimo via HTTP: {MachineId}", request.MachineId);
 
-                // Registrar no servidor cloud
-                var cloudResponse = await _httpClient.PostAsJsonAsync(
-                    $"{_cloudServerUrl}/api/AnonymousNode/register", 
-                    request
+                // Usar o endpoint HTTP correto para registro de nó desktop
+                var desktopNodeRequest = new
+                {
+                    name = request.Name, // Alias do nó
+                    machineName = Environment.MachineName, // Nome da máquina
+                    machineId = request.MachineId,
+                    ipAddress = request.IpAddress,
+                    port = request.Port,
+                    databasePath = request.DatabasePath ?? string.Empty,
+                    version = request.Version ?? "1.0.0",
+                    operatingSystem = request.OperatingSystem ?? string.Empty
+                };
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{_cloudServerUrl}/api/DesktopNode/register", 
+                    desktopNodeRequest
                 );
 
-                if (!cloudResponse.IsSuccessStatusCode)
+                if (!response.IsSuccessStatusCode)
                 {
-                    var errorContent = await cloudResponse.Content.ReadAsStringAsync();
+                    var errorContent = await response.Content.ReadAsStringAsync();
                     _logger.LogWarning("Falha ao registrar nó anônimo no servidor cloud: {StatusCode} - {Error}", 
-                        cloudResponse.StatusCode, errorContent);
-                    throw new InvalidOperationException($"Erro ao registrar nó anônimo: {cloudResponse.StatusCode}");
+                        response.StatusCode, errorContent);
+                    throw new InvalidOperationException($"Erro ao registrar nó anônimo: {response.StatusCode}");
                 }
 
-                var cloudResult = await cloudResponse.Content.ReadFromJsonAsync<AnonymousNodeResponse>();
-                if (cloudResult == null)
+                var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation("Resposta do servidor: {Response}", responseContent);
+
+                // Para registro anônimo, criar resposta baseada no que foi enviado
+                var result = new AnonymousNodeResponse
                 {
-                    throw new InvalidOperationException("Resposta inválida do servidor cloud");
-                }
+                    Id = Guid.NewGuid().ToString(), // Gerar ID temporário
+                    AnonymousToken = Guid.NewGuid().ToString(), // Gerar token temporário
+                    MachineId = request.MachineId,
+                    Name = request.Name, // Alias do nó
+                    IpAddress = request.IpAddress,
+                    Port = request.Port,
+                    DatabasePath = request.DatabasePath,
+                    Version = request.Version,
+                    OperatingSystem = request.OperatingSystem,
+                    IsAnonymous = true,
+                    AnonymousExpiresAt = DateTime.UtcNow.AddDays(30), // Token anônimo válido por 30 dias
+                    CreatedAt = DateTime.UtcNow,
+                    LastSeen = DateTime.UtcNow
+                };
 
-                _logger.LogInformation("Nó anônimo registrado com sucesso: {MachineId}", request.MachineId);
+                _logger.LogInformation("Nó anônimo registrado com sucesso via HTTP: {MachineId} -> {NodeId}", request.MachineId, result.Id);
 
-                return cloudResult;
+                return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao registrar nó anônimo: {MachineId}", request.MachineId);
+                _logger.LogError(ex, "Erro ao registrar nó anônimo via HTTP: {MachineId}", request.MachineId);
                 throw;
             }
         }
@@ -292,14 +319,22 @@ namespace FirebirdApi.Services
         {
             try
             {
+                _logger.LogInformation("Buscando informações do nó anônimo por token via gRPC: {TokenLength} caracteres", anonymousToken?.Length ?? 0);
+
+                // Para buscar informações de nó anônimo por token, vamos usar HTTP por enquanto
+                // pois o serviço gRPC não tem um método específico para isso
                 var response = await _httpClient.GetAsync($"{_cloudServerUrl}/api/AnonymousNode/info/{anonymousToken}");
                 
                 if (!response.IsSuccessStatusCode)
                 {
+                    _logger.LogWarning("Nó anônimo não encontrado ou token inválido: {StatusCode}", response.StatusCode);
                     return null;
                 }
 
-                return await response.Content.ReadFromJsonAsync<AnonymousNodeResponse>();
+                var result = await response.Content.ReadFromJsonAsync<AnonymousNodeResponse>();
+                _logger.LogInformation("Informações do nó anônimo obtidas com sucesso: {NodeId}", result?.Id ?? "N/A");
+                
+                return result;
             }
             catch (Exception ex)
             {
@@ -533,8 +568,16 @@ namespace FirebirdApi.Services
         {
             try
             {
+                _logger.LogInformation("Validando token anônimo: {TokenLength} caracteres", anonymousToken?.Length ?? 0);
+                
+                // Usar HTTP para validação de token anônimo por enquanto
+                // pois o serviço gRPC não tem um método específico para isso
                 var response = await _httpClient.PostAsync($"{_cloudServerUrl}/api/AnonymousNode/validate/{anonymousToken}", null);
-                return response.IsSuccessStatusCode;
+                
+                var isValid = response.IsSuccessStatusCode;
+                _logger.LogInformation("Validação de token anônimo: {IsValid}", isValid ? "VÁLIDO" : "INVÁLIDO");
+                
+                return isValid;
             }
             catch (Exception ex)
             {

@@ -295,6 +295,10 @@ namespace FirebirdApi.Models
         public string Id { get; set; } = string.Empty;
 
         [Required]
+        [Column("machine_id")]
+        public string MachineId { get; set; } = string.Empty;
+
+        [Required]
         [Column("machine_name")]
         public string MachineName { get; set; } = string.Empty;
 

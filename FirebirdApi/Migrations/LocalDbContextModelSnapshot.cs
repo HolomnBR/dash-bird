@@ -281,6 +281,12 @@ namespace FirebirdApi.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("last_seen");
 
+                    b.Property<string>("MachineId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("machine_id");
+
                     b.Property<string>("MachineName")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -317,6 +323,9 @@ namespace FirebirdApi.Migrations
                     b.HasIndex("IsActive");
 
                     b.HasIndex("IsAnonymous");
+
+                    b.HasIndex("MachineId")
+                        .IsUnique();
 
                     b.HasIndex("MachineName");
 

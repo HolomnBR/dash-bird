@@ -166,31 +166,15 @@ export const useLocalNode = (): UseLocalNodeReturn => {
           if (systemInfo.success && systemInfo.data) {
             const { machineName, operatingSystem, systemVersion, architecture } = systemInfo.data;
             
-            // Verificar se já existe nó para esta máquina
-            const hasNodeResult = await hasLocalNode(machineName);
+            // Garantir que existe um nó local (método unificado)
+            console.log('🔍 Garantindo existência do nó local para:', machineName);
+            const result = await localStorageService.getSystemInfoAndSaveNode();
             
-            if (hasNodeResult) {
-              // Nó já existe, obter dados atuais
-              console.log('🔍 Nó já existe, obtendo dados atuais...');
-              await getLocalNodeByMachine(machineName);
+            if (result.success && result.data) {
+              setLocalNode(result.data as LocalNode);
+              console.log('✅ Nó local garantido:', result.data);
             } else {
-              // Criar novo nó com informações do sistema
-              console.log('🆕 Criando novo nó com dados:', {
-                machineName,
-                operatingSystem,
-                systemVersion,
-                architecture
-              });
-              
-              const nodeData = {
-                machineName,
-                operatingSystem,
-                systemVersion,
-                architecture,
-                port: 8000
-              };
-
-              await saveLocalNode(nodeData);
+              console.error('❌ Erro ao garantir nó local:', result.message);
             }
           }
         }

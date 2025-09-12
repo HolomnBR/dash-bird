@@ -251,9 +251,47 @@ function createWindow() {
 // Register IPC handlers before app is ready
 type NodeConfig = { nodeId: string; machineId: string; machineName: string; alias?: string; createdAt: string }
 const store = new Store<{ nodeConfig?: NodeConfig }>()
+
+// Função abstrata para obter informações completas do sistema
+async function getSystemInfo(): Promise<{ 
+  machineId: string; 
+  machineName: string; 
+  operatingSystem: string;
+  systemVersion: string;
+  architecture: string;
+  appVersion: string;
+  ipAddress: string;
+}> {
+  let machineIdValue = 'unknown'
+  let machineNameValue = 'unknown'
+  
+  try {
+    machineIdValue = await machineId(true)
+  } catch (error) {
+    console.error('❌ Erro ao obter machineId:', error)
+  }
+  
+  try {
+    machineNameValue = hostname()
+  } catch (error) {
+    console.warn('⚠️ Erro ao obter hostname:', error)
+  }
+  
+  return { 
+    machineId: machineIdValue, 
+    machineName: machineNameValue,
+    operatingSystem: getRealOperatingSystem(),
+    systemVersion: getRealSystemVersion(),
+    architecture: arch(),
+    appVersion: getRealAppVersion(),
+    ipAddress: getRealIPAddress()
+  }
+}
+
 function getOrCreateNodeConfig(): NodeConfig {
   let cfg = store.get('nodeConfig')
   let changed = false
+  
   if (!cfg) {
     cfg = {
       nodeId: randomUUID(),
@@ -264,6 +302,7 @@ function getOrCreateNodeConfig(): NodeConfig {
     }
     changed = true
   }
+  
   return (changed ? (store.set('nodeConfig', cfg), cfg) : cfg) as NodeConfig
 }
 
@@ -298,6 +337,101 @@ async function getLoggedUser(): Promise<{ id: string; name: string; email: strin
   }
 }
 
+// Função para registrar nó anônimo automaticamente na inicialização
+async function registerAnonymousNodeOnStartup(): Promise<void> {
+  try {
+    console.log('🔄 Iniciando registro automático de nó anônimo...')
+    
+    const cfg = getOrCreateNodeConfig()
+    const apiUrl = 'http://localhost:8000'
+    
+    // Garantir que temos os dados do sistema atualizados
+    const systemInfo = await getSystemInfo()
+    if (cfg.machineId === 'unknown') cfg.machineId = systemInfo.machineId
+    if (cfg.machineName === 'unknown') cfg.machineName = systemInfo.machineName
+    
+    // Verificar se já existe um nó registrado no SQLite local por MachineId
+    console.log('🔍 Verificando se já existe nó registrado no SQLite local por MachineId...')
+    
+    try {
+      const checkExistingResponse = await fetch(`${apiUrl}/api/LocalNode/by-machine-id/${encodeURIComponent(cfg.machineId)}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (checkExistingResponse.ok) {
+        const existingNode = await checkExistingResponse.json() as { success: boolean; data?: { machineId?: string; machineName?: string } }
+        console.log('✅ Nó já existe no SQLite local para este MachineId:', existingNode)
+        
+        // Usar dados consolidados do sistema para o registro anônimo
+        const systemInfo = await getSystemInfo()
+        
+        const anonymousNodeData = {
+          name: cfg.alias || `Desktop Node (${cfg.machineName})` || `Node-${cfg.nodeId.slice(0, 8)}`,
+          machineId: cfg.machineId,
+          ipAddress: systemInfo.ipAddress,
+          port: 8000,
+          databasePath: '', // Será preenchido quando necessário
+          version: systemInfo.appVersion,
+          operatingSystem: systemInfo.operatingSystem
+        }
+        
+        console.log('🔄 Registrando nó anônimo com dados do SQLite:', anonymousNodeData)
+        console.log('🌐 Fazendo requisição para:', `${apiUrl}/api/Auth/anonymous/register`)
+        
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 segundos timeout
+        
+        const response = await fetch(`${apiUrl}/api/Auth/anonymous/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(anonymousNodeData),
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
+        
+        if (response.ok) {
+          const result = await response.json() as { anonymousToken?: string; id?: string }
+          console.log('✅ Nó anônimo registrado com sucesso:', result)
+          
+          // Armazenar token anônimo no localStorage do renderer
+          if (mainWindow && result.anonymousToken) {
+            mainWindow.webContents.executeJavaScript(`
+              localStorage.setItem('anonymous_token', '${result.anonymousToken}');
+              localStorage.setItem('anonymous_node_id', '${result.id || ''}');
+              console.log('🔑 Token anônimo armazenado no localStorage');
+            `)
+          }
+        } else {
+          const errorText = await response.text()
+          console.warn('⚠️ Falha ao registrar nó anônimo:', response.status, errorText)
+        }
+      } else if (checkExistingResponse.status === 404) {
+        console.log('ℹ️ Nó não existe no SQLite local para este MachineId ainda, aguardando configuração pelo usuário...')
+      } else {
+        console.warn('⚠️ Erro ao verificar existência do nó no SQLite local:', checkExistingResponse.status)
+      }
+    } catch (error) {
+      console.warn('⚠️ Erro ao verificar SQLite local:', error)
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        console.warn('⚠️ Timeout ao registrar nó anônimo (15s)')
+      } else {
+        console.error('❌ Erro ao registrar nó anônimo:', error.message)
+      }
+    } else {
+      console.error('❌ Erro desconhecido ao registrar nó anônimo:', error)
+    }
+  }
+}
+
 // Função unificada para registrar o node e iniciar streaming (MÉTODO OTIMIZADO)
 async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: string, forceRegister: boolean = false): Promise<void> {
   // Evitar registros duplicados ou em progresso (exceto se forçado)
@@ -310,6 +444,11 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
   
   try {
     const apiUrl = 'http://localhost:8000'
+    
+    // Garantir que temos os dados do sistema atualizados
+    const nodeSystemInfo = await getSystemInfo()
+    if (nodeConfig.machineId === 'unknown') nodeConfig.machineId = nodeSystemInfo.machineId
+    if (nodeConfig.machineName === 'unknown') nodeConfig.machineName = nodeSystemInfo.machineName
     
     // Obter token de autenticação se disponível
     let authToken: string | undefined
@@ -328,9 +467,9 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
       }
     }
     
-    // PASSO 1: Verificar se já existe nó com mesmo nome e sistema
-    console.log('🔍 Verificando se já existe nó com mesmo nome e sistema...')
-    const checkExistingResponse = await fetch(`${apiUrl}/api/LocalNode/exists/${encodeURIComponent(nodeConfig.machineName)}`, {
+    // PASSO 1: Verificar se já existe nó com mesmo MachineId no SQLite local
+    console.log('🔍 Verificando se já existe nó com mesmo MachineId no SQLite local...')
+    const checkExistingResponse = await fetch(`${apiUrl}/api/LocalNode/by-machine-id/${encodeURIComponent(nodeConfig.machineId)}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -339,82 +478,79 @@ async function registerNodeAndStartStreaming(nodeConfig: NodeConfig, userId?: st
     })
     
     if (checkExistingResponse.ok) {
-      const existingResult = await checkExistingResponse.json() as { success: boolean; data?: { exists: boolean } }
-      if (existingResult.success && existingResult.data?.exists) {
-        console.log('✅ Nó já existe localmente, obtendo dados existentes...')
-        const getExistingResponse = await fetch(`${apiUrl}/api/LocalNode/by-machine/${encodeURIComponent(nodeConfig.machineName)}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(authToken && { 'Authorization': `Bearer ${authToken}` })
-          }
-        })
-        
-        if (getExistingResponse.ok) {
-          const existingNode = await getExistingResponse.json()
-          console.log('📋 Nó existente encontrado localmente:', existingNode)
-          
-          // Mesmo com nó existente localmente, ainda precisa registrar no cloud
-          console.log('🔄 Nó existe localmente, mas ainda precisa registrar no cloud...')
+      const existingNode = await checkExistingResponse.json() as { success: boolean; data?: { machineId?: string; machineName?: string } }
+      console.log('✅ Nó já existe no SQLite local para este MachineId:', existingNode)
+      
+      // Usar dados do SQLite local para atualizar a configuração do nó
+      if (existingNode.data) {
+        const nodeData = existingNode.data
+        // Atualizar nodeConfig com dados do SQLite se necessário
+        if (nodeData.machineName && nodeData.machineName !== nodeConfig.machineName) {
+          console.log('🔄 Atualizando machineName com dados do SQLite:', nodeData.machineName)
+          nodeConfig.machineName = nodeData.machineName
         }
+        // O machineId já está correto, pois foi usado para buscar
       }
+      
+      console.log('🔄 Nó existe no SQLite local, prosseguindo com registro no cloud...')
+    } else if (checkExistingResponse.status === 404) {
+      console.log('ℹ️ Nó não existe no SQLite local para este MachineId, será criado durante o registro...')
+    } else {
+      console.warn('⚠️ Erro ao verificar existência do nó no SQLite local:', checkExistingResponse.status)
     }
     
     // PASSO 2: Registrar nó localmente primeiro
     console.log('🔄 Registrando nó localmente...')
     
-    // Detectar informações reais do sistema
-    const realOperatingSystem = getRealOperatingSystem()
-    const realSystemVersion = getRealSystemVersion()
+    // Usar informações consolidadas do sistema
+    const localSystemInfo = await getSystemInfo()
     
-    console.log('🔍 Informações reais detectadas:', {
-      operatingSystem: realOperatingSystem,
-      systemVersion: realSystemVersion,
-      ipAddress: '::1', // Mantendo localhost como estava
-      architecture: arch()
+    console.log('🔍 Informações do sistema consolidadas:', {
+      operatingSystem: localSystemInfo.operatingSystem,
+      systemVersion: localSystemInfo.systemVersion,
+      ipAddress: localSystemInfo.ipAddress,
+      architecture: localSystemInfo.architecture
     })
     
-    const localNodeData = {
+    // Usar endpoint unificado que garante existência do nó
+    const ensureNodeData = {
       machineName: nodeConfig.machineName,
-      operatingSystem: realOperatingSystem,
-      systemVersion: realSystemVersion,
-      architecture: arch(),
-      ipAddress: '::1', // Mantendo localhost como estava
-      port: 8000
+      machineId: nodeConfig.machineId // IMPORTANTE: Incluir MachineId para garantir unicidade
     }
     
-    const localNodeResponse = await fetch(`${apiUrl}/api/LocalNode/save-local-node`, {
+    console.log('🔍 Garantindo existência do nó local:', ensureNodeData)
+    
+    const localNodeResponse = await fetch(`${apiUrl}/api/LocalNode/ensure-exists`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(authToken && { 'Authorization': `Bearer ${authToken}` })
       },
-      body: JSON.stringify(localNodeData)
+      body: JSON.stringify(ensureNodeData)
     })
     
     if (!localNodeResponse.ok) {
-      throw new Error(`Erro ao registrar nó local: ${localNodeResponse.status}`)
+      const errorText = await localNodeResponse.text()
+      console.error('❌ Erro ao garantir nó local:', errorText)
+      throw new Error(`Erro ao garantir nó local: ${localNodeResponse.status} - ${errorText}`)
     }
     
     const localNodeResult = await localNodeResponse.json()
-    console.log('✅ Nó registrado localmente:', localNodeResult)
+    console.log('✅ Nó local garantido:', localNodeResult)
     
     // PASSO 3: Registrar no cloud (Sync)
     console.log('🌐 Registrando nó no cloud...')
-    
-    // Detectar versão real da aplicação
-    const realAppVersion = getRealAppVersion()
     
     const nodeRegistrationData = {
       nodeId: nodeConfig.nodeId, // Usar o nodeId do Electron como connectionId
       name: nodeConfig.alias || `Desktop Node (${nodeConfig.machineName})` || `Node-${nodeConfig.nodeId.slice(0, 8)}`,
       machineName: nodeConfig.machineName, // Incluir machineName explicitamente
       machineId: nodeConfig.machineId,
-      ipAddress: getRealIPAddress(), // Usar IP real detectado
+      ipAddress: localSystemInfo.ipAddress, // Usar IP real detectado
       port: 5000,
       databasePath: null,
-      version: realAppVersion, // Usar versão real da aplicação
-      operatingSystem: realOperatingSystem // Usar SO real detectado
+      version: localSystemInfo.appVersion, // Usar versão real da aplicação
+      operatingSystem: localSystemInfo.operatingSystem // Usar SO real detectado
     }
     
     console.log('🔄 Registrando node no cloud (registro + streaming):', nodeRegistrationData)
@@ -535,14 +671,8 @@ console.log('🔧 Registrando handlers IPC...')
 
 ipcMain.handle('system:getInfo', async () => {
   console.log('📡 Handler system:getInfo chamado')
-  let id = 'unknown'
-  try {
-    id = await machineId(true)
-  } catch (error) {
-    console.error('❌ Erro ao obter machineId:', error)
-  }
-  const deviceName = hostname()
-  const result = { deviceName, machineId: id }
+  const systemInfo = await getSystemInfo()
+  const result = { deviceName: systemInfo.machineName, machineId: systemInfo.machineId }
   console.log('✅ Handler system:getInfo retornando:', result)
   return result
 })
@@ -550,40 +680,45 @@ ipcMain.handle('system:getInfo', async () => {
 ipcMain.handle('system:getSystemInfo', async () => {
   console.log('📡 Handler system:getSystemInfo chamado')
   try {
-    const response = await fetch('http://localhost:8000/api/DatabaseConfig/system-info', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
+    // Usar informações consolidadas do sistema do ElectronJS
+    const systemInfo = await getSystemInfo()
+    
+    const result = {
+      success: true,
+      data: {
+        machineId: systemInfo.machineId,
+        machineName: systemInfo.machineName,
+        operatingSystem: systemInfo.operatingSystem,
+        systemVersion: systemInfo.systemVersion,
+        architecture: systemInfo.architecture,
+        appVersion: systemInfo.appVersion,
+        ipAddress: systemInfo.ipAddress
       }
-    })
-
-    if (response.ok) {
-      const result = await response.json()
-      console.log('✅ Handler system:getSystemInfo retornando:', result)
-      return result
-    } else {
-      console.error('❌ Erro ao obter informações do sistema da API:', response.status)
-      return { success: false, message: 'Erro ao obter informações do sistema' }
     }
+    
+    console.log('✅ Handler system:getSystemInfo retornando:', result)
+    return result
   } catch (error) {
     console.error('❌ Erro ao obter informações do sistema:', error)
-    return { success: false, message: 'Erro de conexão com a API' }
+    return { success: false, message: 'Erro ao obter informações do sistema' }
   }
 })
 
 ipcMain.handle('nodeConfig:get', async () => {
   console.log('📡 Handler nodeConfig:get chamado')
-  const info = await (async () => {
-    let id = 'unknown'
-    try { id = await machineId(true) } catch (error) {
-      console.error('❌ Erro ao obter machineId no nodeConfig:', error)
-    }
-    return { machineId: id, deviceName: hostname() }
-  })()
+  const systemInfo = await getSystemInfo()
   const cfg = getOrCreateNodeConfig()
   let changed = false
-  if (!cfg.machineId || cfg.machineId === 'unknown') { cfg.machineId = info.machineId; changed = true }
-  if (!cfg.machineName || cfg.machineName === 'unknown') { cfg.machineName = info.deviceName; changed = true }
+  
+  if (!cfg.machineId || cfg.machineId === 'unknown') { 
+    cfg.machineId = systemInfo.machineId; 
+    changed = true 
+  }
+  if (!cfg.machineName || cfg.machineName === 'unknown') { 
+    cfg.machineName = systemInfo.machineName; 
+    changed = true 
+  }
+  
   if (changed) store.set('nodeConfig', cfg)
   
   console.log('✅ Handler nodeConfig:get retornando:', cfg)
@@ -629,10 +764,8 @@ ipcMain.handle('registerNode', async (_event, databasePath?: string) => {
     
     await registerNodeAndStartStreaming(cfg, user?.id)
     
-    // Detectar informações reais para retorno
-    const realOperatingSystem = getRealOperatingSystem()
-    const realAppVersion = getRealAppVersion()
-    const realIPAddress = getRealIPAddress()
+    // Usar informações consolidadas do sistema para retorno
+    const returnSystemInfo = await getSystemInfo()
     
     // Retornar informações do nó registrado
     return {
@@ -642,11 +775,11 @@ ipcMain.handle('registerNode', async (_event, databasePath?: string) => {
         name: cfg.alias || `Desktop Node (${cfg.machineName})`,
         machineId: cfg.machineId,
         machineName: cfg.machineName,
-        ipAddress: realIPAddress,
+        ipAddress: returnSystemInfo.ipAddress,
         port: 5000,
         databasePath: databasePath || null,
-        version: realAppVersion,
-        operatingSystem: realOperatingSystem,
+        version: returnSystemInfo.appVersion,
+        operatingSystem: returnSystemInfo.operatingSystem,
         lastSeen: new Date().toISOString(),
         createdAt: cfg.createdAt,
         isActive: true
@@ -952,17 +1085,20 @@ app.whenReady().then(async () => {
   // Limpar apenas dados relacionados ao nó local do localStorage na inicialização
   if (mainWindow) {
     mainWindow.webContents.once('dom-ready', () => {
-      mainWindow?.webContents.executeJavaScript(`
-        // Limpar apenas dados relacionados ao nó local
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_id');
-        localStorage.removeItem('user_email');
-        localStorage.removeItem('user_data');
-        localStorage.removeItem('connected_nodes');
-        localStorage.removeItem('anonymous_token');
-        localStorage.removeItem('device.alias');
-        console.log('🧹 Dados do nó local removidos do localStorage');
-      `);
+
+      // Comentado para evitar limpeza automática do localStorage
+      // if (false)
+      // mainWindow?.webContents.executeJavaScript(`
+      //   // Limpar apenas dados relacionados ao nó local
+      //   localStorage.removeItem('auth_token');
+      //   localStorage.removeItem('user_id');
+      //   localStorage.removeItem('user_email');
+      //   localStorage.removeItem('user_data');
+      //   localStorage.removeItem('connected_nodes');
+      //   localStorage.removeItem('anonymous_token');
+      //   localStorage.removeItem('device.alias');
+      //   console.log('🧹 Dados do nó local removidos do localStorage');
+      // `);
     });
   }
 
@@ -979,7 +1115,9 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setTimeout(resolve, 3000))
     
     console.log('✅ API Firebird iniciada com sucesso!')
-    console.log('📝 Nota: O registro do nó será feito apenas quando solicitado pelo cliente')
+    
+    // Registrar nó anônimo automaticamente na inicialização
+    await registerAnonymousNodeOnStartup()
   } catch (error) {
     console.error('❌ Erro ao verificar/iniciar API:', error instanceof Error ? error.message : String(error))
   }

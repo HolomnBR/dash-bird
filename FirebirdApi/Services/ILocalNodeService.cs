@@ -20,6 +20,11 @@ namespace FirebirdApi.Services
         Task<LocalNode?> GetLocalNodeByMachineNameAsync(string machineName);
 
         /// <summary>
+        /// Obter nó local por MachineId (chave única)
+        /// </summary>
+        Task<LocalNode?> GetLocalNodeByMachineIdAsync(string machineId);
+
+        /// <summary>
         /// Obter todos os nós locais ativos
         /// </summary>
         Task<List<LocalNode>> GetAllLocalNodesAsync();
@@ -52,6 +57,11 @@ namespace FirebirdApi.Services
         /// <summary>
         /// Criar nó local com informações do sistema
         /// </summary>
-        Task<LocalNode> CreateLocalNodeWithSystemInfoAsync(string machineName, string operatingSystem, string systemVersion, string architecture, string? ipAddress = null, int port = 8000);
+        Task<LocalNode> CreateLocalNodeWithSystemInfoAsync(string machineName, string operatingSystem, string systemVersion, string architecture, string? ipAddress = null, int port = 8000, string? machineId = null);
+
+        /// <summary>
+        /// Garante que existe um nó local para a máquina atual
+        /// </summary>
+        Task<LocalNode> EnsureLocalNodeExistsAsync(string machineName, string? machineId = null);
     }
 }

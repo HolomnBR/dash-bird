@@ -120,6 +120,7 @@ namespace FirebirdApi.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Id).HasMaxLength(100);
+                entity.Property(e => e.MachineId).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.MachineName).IsRequired().HasMaxLength(255);
                 entity.Property(e => e.OperatingSystem).IsRequired().HasMaxLength(255);
                 entity.Property(e => e.SystemVersion).IsRequired().HasMaxLength(100);
@@ -127,6 +128,7 @@ namespace FirebirdApi.Data
                 entity.Property(e => e.IpAddress).HasMaxLength(45); // IPv6 suporta até 45 caracteres
                 entity.Property(e => e.UserId).HasMaxLength(100);
                 entity.Property(e => e.AnonymousToken).HasMaxLength(4000);
+                entity.HasIndex(e => e.MachineId).IsUnique(); // MachineId deve ser único
                 entity.HasIndex(e => e.MachineName);
                 entity.HasIndex(e => e.IsActive);
                 entity.HasIndex(e => e.IsAnonymous);

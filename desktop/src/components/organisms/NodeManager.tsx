@@ -222,25 +222,36 @@ export function NodeManager() {
 
   // Verificação automática de conexão após carregar dados do nó
   useEffect(() => {
-    if (nodeConfig && isAuthenticated && token && !loading) {
+    if (nodeConfig && !loading) {
       console.log('🔄 Verificação automática de conexão do nó ao iniciar o app...')
       // Executar verificação após um pequeno delay para garantir que tudo foi carregado
       const timer = setTimeout(async () => {
-        // Primeiro, tentar registrar o nó se necessário
-        try {
-          console.log('🚀 Tentando registrar nó automaticamente...')
-          const registerResult = await window.system.registerNode()
-          if (registerResult.success) {
-            console.log('✅ Nó registrado automaticamente:', registerResult.data)
-          } else {
-            console.warn('⚠️ Falha ao registrar nó automaticamente:', registerResult.error)
+        if (isAuthenticated && token) {
+          // Usuário autenticado - tentar registro normal
+          try {
+            console.log('🚀 Tentando registrar nó automaticamente (usuário autenticado)...')
+            const registerResult = await window.system.registerNode()
+            if (registerResult.success) {
+              console.log('✅ Nó registrado automaticamente:', registerResult.data)
+            } else {
+              console.warn('⚠️ Falha ao registrar nó automaticamente:', registerResult.error)
+            }
+          } catch (error) {
+            console.error('❌ Erro ao registrar nó automaticamente:', error)
           }
-        } catch (error) {
-          console.error('❌ Erro ao registrar nó automaticamente:', error)
+          
+          // Depois verificar conexão
+          checkNodeConnection(true) // Forçar verificação no servidor
+        } else {
+          // Usuário não autenticado - verificar se já existe nó anônimo
+          console.log('👤 Usuário não autenticado, verificando nó anônimo...')
+          const anonymousToken = localStorage.getItem('anonymous_token')
+          if (anonymousToken) {
+            console.log('✅ Nó anônimo já registrado, token encontrado')
+          } else {
+            console.log('⚠️ Nenhum nó anônimo encontrado - o registro automático deve ter falhado')
+          }
         }
-        
-        // Depois verificar conexão
-        checkNodeConnection(true) // Forçar verificação no servidor
       }, 2000) // 2 segundos de delay para garantir que a API esteja pronta
       
       return () => clearTimeout(timer)

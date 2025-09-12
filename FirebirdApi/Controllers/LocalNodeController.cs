@@ -11,15 +11,18 @@ namespace FirebirdApi.Controllers
     {
         private readonly ILocalNodeService _localNodeService;
         private readonly ISystemInfoService _systemInfoService;
+        private readonly LocalNodeManagerService _nodeManagerService;
         private readonly ILogger<LocalNodeController> _logger;
 
         public LocalNodeController(
             ILocalNodeService localNodeService,
             ISystemInfoService systemInfoService,
+            LocalNodeManagerService nodeManagerService,
             ILogger<LocalNodeController> logger)
         {
             _localNodeService = localNodeService;
             _systemInfoService = systemInfoService;
+            _nodeManagerService = nodeManagerService;
             _logger = logger;
         }
 
@@ -29,7 +32,7 @@ namespace FirebirdApi.Controllers
         [HttpPost("save-local-node")]
         [SwaggerOperation(
             Summary = "Salvar nó local",
-            Description = "Salva ou atualiza as informações do nó local no SQLite com dados do sistema."
+            Description = "Salva ou atualiza as informações do nó local no SQLite com dados do sistema. Garante unicidade por MachineId."
         )]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -40,6 +43,11 @@ namespace FirebirdApi.Controllers
                 if (string.IsNullOrWhiteSpace(request.MachineName))
                 {
                     return BadRequest(new { success = false, message = "Nome da máquina é obrigatório" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.MachineId))
+                {
+                    return BadRequest(new { success = false, message = "MachineId é obrigatório para garantir unicidade" });
                 }
 
                 // Obter informações do sistema se não fornecidas
@@ -55,18 +63,21 @@ namespace FirebirdApi.Controllers
                     ? request.Architecture 
                     : _systemInfoService.GetArchitecture();
 
-                _logger.LogInformation("📥 Dados recebidos - MachineName: {MachineName}, OperatingSystem: {OperatingSystem}, SystemVersion: {SystemVersion}, Architecture: {Architecture}", 
-                    request.MachineName, operatingSystem, systemVersion, architecture);
+                _logger.LogInformation("📥 Dados recebidos - MachineName: {MachineName}, MachineId: {MachineId}, OperatingSystem: {OperatingSystem}, SystemVersion: {SystemVersion}, Architecture: {Architecture}", 
+                    request.MachineName, request.MachineId, operatingSystem, systemVersion, architecture);
 
-                // Verificar se já existe nó para esta máquina
-                var existingNode = await _localNodeService.GetLocalNodeByMachineNameAsync(request.MachineName);
+                // REGRA DE UNICIDADE: Verificar se já existe nó para este MachineId
+                var existingNode = await _localNodeService.GetLocalNodeByMachineIdAsync(request.MachineId);
                 
                 LocalNode node;
+                bool isUpdate = existingNode != null;
+                
                 if (existingNode != null)
                 {
-                    // Nó já existe - apenas atualizar propriedades do sistema
-                    _logger.LogInformation("Nó existente encontrado para {MachineName}, atualizando propriedades do sistema", request.MachineName);
+                    // Nó já existe - atualizar propriedades do sistema
+                    _logger.LogInformation("Nó existente encontrado para MachineId {MachineId}, atualizando propriedades do sistema", request.MachineId);
                     
+                    existingNode.MachineName = request.MachineName; // Atualizar nome da máquina se mudou
                     existingNode.OperatingSystem = operatingSystem;
                     existingNode.SystemVersion = systemVersion;
                     existingNode.Architecture = architecture;
@@ -81,11 +92,12 @@ namespace FirebirdApi.Controllers
                 else
                 {
                     // Nó não existe - criar novo nó
-                    _logger.LogInformation("Criando novo nó para {MachineName}", request.MachineName);
+                    _logger.LogInformation("Criando novo nó para MachineId {MachineId} (MachineName: {MachineName})", request.MachineId, request.MachineName);
                     
                     node = new LocalNode
                     {
                         Id = Guid.NewGuid().ToString(),
+                        MachineId = request.MachineId, // IMPORTANTE: Usar MachineId como chave única
                         MachineName = request.MachineName,
                         OperatingSystem = operatingSystem,
                         SystemVersion = systemVersion,
@@ -108,6 +120,7 @@ namespace FirebirdApi.Controllers
                     data = new
                     {
                         id = node.Id,
+                        machineId = node.MachineId,
                         machineName = node.MachineName,
                         operatingSystem = node.OperatingSystem,
                         systemVersion = node.SystemVersion,
@@ -120,12 +133,12 @@ namespace FirebirdApi.Controllers
                         updatedAt = node.UpdatedAt,
                         lastSeen = node.LastSeen
                     },
-                    message = existingNode != null ? "Nó local atualizado com sucesso" : "Nó local criado com sucesso"
+                    message = isUpdate ? "Nó local atualizado com sucesso" : "Nó local criado com sucesso"
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao salvar nó local: {MachineName}", request.MachineName);
+                _logger.LogError(ex, "Erro ao salvar nó local: {MachineName} (MachineId: {MachineId})", request.MachineName, request.MachineId);
                 return StatusCode(500, new
                 {
                     success = false,
@@ -459,12 +472,166 @@ namespace FirebirdApi.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Obter nó local por MachineId (chave única)
+        /// </summary>
+        [HttpGet("by-machine-id/{machineId}")]
+        [SwaggerOperation(
+            Summary = "Obter nó local por MachineId",
+            Description = "Retorna as informações do nó local pelo MachineId (chave única)."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetLocalNodeByMachineId(string machineId)
+        {
+            try
+            {
+                var node = await _localNodeService.GetLocalNodeByMachineIdAsync(machineId);
+                
+                if (node == null)
+                {
+                    return NotFound(new { success = false, message = "Nó local não encontrado para este MachineId" });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = node.Id,
+                        machineId = node.MachineId,
+                        machineName = node.MachineName,
+                        operatingSystem = node.OperatingSystem,
+                        systemVersion = node.SystemVersion,
+                        architecture = node.Architecture,
+                        ipAddress = node.IpAddress,
+                        port = node.Port,
+                        isActive = node.IsActive,
+                        isAnonymous = node.IsAnonymous,
+                        userId = node.UserId,
+                        createdAt = node.CreatedAt,
+                        updatedAt = node.UpdatedAt,
+                        lastSeen = node.LastSeen
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter nó local por MachineId: {MachineId}", machineId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Garantir que existe nó local para a máquina atual (thread-safe)
+        /// </summary>
+        [HttpPost("ensure-exists")]
+        [SwaggerOperation(
+            Summary = "Garantir existência do nó local",
+            Description = "Garante que existe um nó local para a máquina atual. Se não existir, cria um novo. Thread-safe e evita chamadas duplicadas."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> EnsureLocalNodeExists([FromBody] EnsureLocalNodeRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.MachineName))
+                {
+                    return BadRequest(new { success = false, message = "Nome da máquina é obrigatório" });
+                }
+
+                _logger.LogInformation("🔍 Garantindo existência do nó local para: {MachineName} (MachineId: {MachineId})", 
+                    request.MachineName, request.MachineId ?? "não fornecido");
+
+                // Usar o gerenciador thread-safe
+                var node = await _nodeManagerService.EnsureLocalNodeExistsAsync(request.MachineName, request.MachineId);
+
+                _logger.LogInformation("✅ Nó local garantido com sucesso: {NodeId} (MachineId: {MachineId})", 
+                    node.Id, node.MachineId);
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = node.Id,
+                        machineId = node.MachineId,
+                        machineName = node.MachineName,
+                        operatingSystem = node.OperatingSystem,
+                        systemVersion = node.SystemVersion,
+                        architecture = node.Architecture,
+                        ipAddress = node.IpAddress,
+                        port = node.Port,
+                        isActive = node.IsActive,
+                        isAnonymous = node.IsAnonymous,
+                        userId = node.UserId,
+                        createdAt = node.CreatedAt,
+                        updatedAt = node.UpdatedAt,
+                        lastSeen = node.LastSeen
+                    },
+                    message = "Nó local garantido com sucesso"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao garantir existência do nó local: {MachineName}", request.MachineName);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Obter estatísticas do gerenciador de nós locais
+        /// </summary>
+        [HttpGet("manager-stats")]
+        [SwaggerOperation(
+            Summary = "Estatísticas do gerenciador de nós",
+            Description = "Retorna estatísticas do cache e operações pendentes do gerenciador de nós locais."
+        )]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        public IActionResult GetManagerStats()
+        {
+            try
+            {
+                var (cachedNodes, pendingOperations) = _nodeManagerService.GetCacheStats();
+                
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        cachedNodes,
+                        pendingOperations,
+                        timestamp = DateTime.UtcNow
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao obter estatísticas do gerenciador");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = $"Erro interno: {ex.Message}"
+                });
+            }
+        }
     }
 
     // DTOs para as requisições
     public class SaveLocalNodeRequest
     {
         public string MachineName { get; set; } = string.Empty;
+        public string MachineId { get; set; } = string.Empty; // OBRIGATÓRIO para garantir unicidade
         public string? OperatingSystem { get; set; }
         public string? SystemVersion { get; set; }
         public string? Architecture { get; set; }
@@ -482,5 +649,11 @@ namespace FirebirdApi.Controllers
     public class BindLocalNodeToUserRequest
     {
         public string UserId { get; set; } = string.Empty;
+    }
+
+    public class EnsureLocalNodeRequest
+    {
+        public string MachineName { get; set; } = string.Empty;
+        public string? MachineId { get; set; }
     }
 }

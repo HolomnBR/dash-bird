@@ -80,6 +80,7 @@ namespace FirebirdApi.Services
                 _logger.LogInformation("🚀 Iniciando streaming gRPC: ConnectionId={ConnectionId}, MachineId={MachineId}", connectionId, machineId);
                 _logger.LogInformation("📋 Parâmetros completos - AuthToken: {HasToken}, NodeId: {NodeId}, Name: {Name}, MachineName: {MachineName}, Version: {Version}, OperatingSystem: {OperatingSystem}", 
                     !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO", nodeId ?? "NULL", name ?? "NULL", machineName ?? "NULL", version ?? "NULL", operatingSystem ?? "NULL");
+                _logger.LogInformation("🔗 Iniciando conexão gRPC com servidor cloud...");
                 
                 if (IsConnected)
                 {
@@ -132,12 +133,14 @@ namespace FirebirdApi.Services
                 
                 try
                 {
+                    _logger.LogInformation("🔧 Chamando _client.CommandStream() com headers: {HeaderCount}", headers.Count);
                     _stream = _client.CommandStream(headers: headers, cancellationToken: _cancellationTokenSource.Token);
-                    _logger.LogInformation("✅ Stream gRPC estabelecido com sucesso");
+                    _logger.LogInformation("✅ Stream gRPC estabelecido com sucesso - Stream: {StreamStatus}", _stream != null ? "CRIADO" : "NULL");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "❌ ERRO ao estabelecer stream gRPC: {Error}", ex.Message);
+                    _logger.LogError("🔍 Detalhes do erro: {ErrorDetails}", ex.ToString());
                     throw;
                 }
 
@@ -168,15 +171,19 @@ namespace FirebirdApi.Services
                     firstMessage.ConnectionId, firstMessage.NodeId, firstMessage.MachineId, firstMessage.Name, firstMessage.MachineName, firstMessage.Version, firstMessage.OperatingSystem, firstMessage.UserId);
                 
                 _logger.LogInformation("📤 Enviando primeira mensagem gRPC...");
+                _logger.LogInformation("📋 Conteúdo da primeira mensagem - ConnectionId: {ConnectionId}, NodeId: {NodeId}, MachineId: {MachineId}, Name: {Name}, MachineName: {MachineName}, Version: {Version}, OperatingSystem: {OperatingSystem}, UserId: {UserId}", 
+                    firstMessage.ConnectionId, firstMessage.NodeId, firstMessage.MachineId, firstMessage.Name, firstMessage.MachineName, firstMessage.Version, firstMessage.OperatingSystem, firstMessage.UserId);
                 
                 try
                 {
+                    _logger.LogInformation("🔧 Chamando _stream.RequestStream.WriteAsync()...");
                     await _stream.RequestStream.WriteAsync(firstMessage);
                     _logger.LogInformation("✅ Primeira mensagem gRPC enviada com sucesso");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "❌ ERRO ao enviar primeira mensagem gRPC: {Error}", ex.Message);
+                    _logger.LogError("🔍 Detalhes do erro: {ErrorDetails}", ex.ToString());
                     throw;
                 }
                 
@@ -188,7 +195,9 @@ namespace FirebirdApi.Services
 
                 // Iniciar task para escutar comandos
                 _logger.LogInformation("👂 Iniciando task de escuta de comandos...");
+                _logger.LogInformation("🔧 Criando Task.Run para ListenForCommandsAsync...");
                 _streamingTask = Task.Run(async () => await ListenForCommandsAsync(_cancellationTokenSource.Token));
+                _logger.LogInformation("✅ Task de escuta de comandos criada - Status: {TaskStatus}", _streamingTask?.Status ?? TaskStatus.Created);
                 
                 var duration = DateTime.UtcNow - startTime;
                 _logger.LogInformation("🎉 Streaming gRPC iniciado com sucesso em {Duration}ms", duration.TotalMilliseconds);
@@ -544,6 +553,8 @@ namespace FirebirdApi.Services
         {
             try
             {
+                _logger.LogInformation("👂 ListenForCommandsAsync iniciado - aguardando mensagens do servidor...");
+                _logger.LogInformation("🔧 Iniciando loop ReadAllAsync no ResponseStream...");
                 await foreach (var serverMessage in _stream!.ResponseStream.ReadAllAsync(cancellationToken))
                 {
                     // Atualizar timestamp de última atividade

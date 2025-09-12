@@ -71,6 +71,22 @@ namespace FirebirdApi.Controllers
                 {
                     request.Version = systemVersion;
                 }
+                if (string.IsNullOrEmpty(request.MachineName))
+                {
+                    request.MachineName = Environment.MachineName;
+                }
+                if (string.IsNullOrEmpty(request.IpAddress))
+                {
+                    request.IpAddress = GetLocalIpAddress();
+                }
+                if (request.Port == 0)
+                {
+                    request.Port = GetAvailablePort();
+                }
+                if (string.IsNullOrEmpty(request.DatabasePath))
+                {
+                    request.DatabasePath = GetDefaultDatabasePath();
+                }
 
                 // 1. Verificar conectividade com o servidor cloud antes de iniciar streaming
                 _logger.LogInformation("🔍 Verificando conectividade com o servidor cloud...");
@@ -96,10 +112,10 @@ namespace FirebirdApi.Controllers
                 _logger.LogInformation("🔄 Registrando nó no servidor cloud via gRPC...");
                 _logger.LogInformation("📋 Dados do registro - ConnectionId: {ConnectionId}, MachineId: {MachineId}, AuthToken: {HasToken}, Name: {Name}, MachineName: {MachineName}", 
                     connectionId, request.MachineId, !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO", request.Name, request.MachineName);
-                _logger.LogInformation("📋 Dados adicionais - Version: {Version}, OperatingSystem: {OperatingSystem}", 
-                    request.Version, request.OperatingSystem);
+                _logger.LogInformation("📋 Dados adicionais - Version: {Version}, OperatingSystem: {OperatingSystem}, IpAddress: {IpAddress}, Port: {Port}, DatabasePath: {DatabasePath}", 
+                    request.Version, request.OperatingSystem, request.IpAddress, request.Port, request.DatabasePath);
                 
-                var nodeRegistrationResult = await RegisterNodeInCloudAsync(connectionId, request.MachineId, authToken, request.Name, request.MachineName, request.Version, request.OperatingSystem);
+                var nodeRegistrationResult = await RegisterNodeInCloudAsync(connectionId, request.MachineId, authToken, request.Name, request.MachineName, request.Version, request.OperatingSystem, request.IpAddress, request.Port, request.DatabasePath);
                 
                 if (!nodeRegistrationResult.Success)
                 {
@@ -113,12 +129,14 @@ namespace FirebirdApi.Controllers
                     _logger.LogInformation("✅ AccessToken recebido: {HasToken}", !string.IsNullOrEmpty(nodeRegistrationResult.AccessToken) ? "SIM" : "NÃO");
                 }
                 
-                // 3. Iniciar streaming gRPC
+                // 3. Iniciar streaming gRPC com o nodeId do registro
                 _logger.LogInformation("🚀 Iniciando streaming gRPC...");
-                _logger.LogInformation("📋 Parâmetros do streaming - ConnectionId: {ConnectionId}, MachineId: {MachineId}, AuthToken: {HasToken}", 
-                    connectionId, request.MachineId, !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO");
+                _logger.LogInformation("📋 Parâmetros do streaming - ConnectionId: {ConnectionId}, MachineId: {MachineId}, AuthToken: {HasToken}, NodeId: {NodeId}", 
+                    connectionId, request.MachineId, !string.IsNullOrEmpty(authToken) ? "SIM" : "NÃO", nodeRegistrationResult.NodeId ?? "NULL");
                 
-                await _commandStreamService.StartStreamingAsync(connectionId, request.MachineId, authToken, connectionId, request.Name, request.MachineName, request.Version, request.OperatingSystem);
+                // Usar o nodeId retornado do registro, ou connectionId como fallback
+                var nodeIdForStreaming = nodeRegistrationResult.NodeId ?? connectionId;
+                await _commandStreamService.StartStreamingAsync(connectionId, request.MachineId, authToken, nodeIdForStreaming, request.Name, request.MachineName, request.Version, request.OperatingSystem);
 
                 _logger.LogInformation("🔍 Verificando status da conexão gRPC após StartStreamingAsync...");
                 _logger.LogInformation("📊 IsConnected: {IsConnected}, IsNodeRegistered: {IsNodeRegistered}", 
@@ -1612,7 +1630,7 @@ namespace FirebirdApi.Controllers
         /// <summary>
         /// Registra o nó no servidor cloud via gRPC
         /// </summary>
-        private async Task<(bool Success, string? NodeId, string? AccessToken)> RegisterNodeInCloudAsync(string connectionId, string machineId, string? authToken, string? name, string? machineName, string? version, string? operatingSystem)
+        private async Task<(bool Success, string? NodeId, string? AccessToken)> RegisterNodeInCloudAsync(string connectionId, string machineId, string? authToken, string? name, string? machineName, string? version, string? operatingSystem, string? ipAddress = null, int port = 0, string? databasePath = null)
         {
             try
             {
@@ -1627,11 +1645,11 @@ namespace FirebirdApi.Controllers
                         MachineId = machineId,
                         Name = name ?? machineName ?? $"Node-{connectionId.Substring(0, Math.Min(8, connectionId.Length))}",
                         MachineName = machineName ?? Environment.MachineName,
-                        IpAddress = "::1", // Localhost
-                        Port = 8000,
+                        IpAddress = ipAddress ?? GetLocalIpAddress(),
+                        Port = port > 0 ? port : GetAvailablePort(),
                         Version = version ?? "2.1.3",
                         OperatingSystem = operatingSystem ?? Environment.OSVersion.ToString(),
-                        DatabasePath = "" // Campo obrigatório - usando string vazia como padrão
+                        DatabasePath = databasePath ?? GetDefaultDatabasePath()
                     };
 
                     _logger.LogInformation("📤 Enviando RegisterAnonymousNodeRequest - Name: {Name}, MachineName: {MachineName}, Port: {Port}", 
@@ -1661,11 +1679,11 @@ namespace FirebirdApi.Controllers
                         MachineId = machineId,
                         Name = name ?? machineName ?? $"Node-{connectionId.Substring(0, Math.Min(8, connectionId.Length))}",
                         MachineName = machineName ?? Environment.MachineName,
-                        IpAddress = "::1", // Localhost
-                        Port = 8000,
+                        IpAddress = ipAddress ?? GetLocalIpAddress(),
+                        Port = port > 0 ? port : GetAvailablePort(),
                         Version = version ?? "2.1.3",
                         OperatingSystem = operatingSystem ?? Environment.OSVersion.ToString(),
-                        DatabasePath = "", // Campo obrigatório - usando string vazia como padrão
+                        DatabasePath = databasePath ?? GetDefaultDatabasePath(),
                         AuthToken = authToken
                     };
 
@@ -1716,6 +1734,75 @@ namespace FirebirdApi.Controllers
                 return authHeader.Substring("Bearer ".Length).Trim();
             }
             return null;
+        }
+
+        /// <summary>
+        /// Obtém o endereço IP local da máquina
+        /// </summary>
+        private string GetLocalIpAddress()
+        {
+            try
+            {
+                var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
+                foreach (var ip in host.AddressList)
+                {
+                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                    {
+                        return ip.ToString();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Erro ao obter endereço IP local");
+            }
+            return "127.0.0.1";
+        }
+
+        /// <summary>
+        /// Obtém uma porta disponível para o nó
+        /// </summary>
+        private int GetAvailablePort()
+        {
+            try
+            {
+                using var socket = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                socket.Start();
+                var port = ((System.Net.IPEndPoint)socket.LocalEndpoint).Port;
+                socket.Stop();
+                return port;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Erro ao obter porta disponível, usando porta padrão");
+                return 8000;
+            }
+        }
+
+        /// <summary>
+        /// Obtém o caminho padrão para databases
+        /// </summary>
+        private string GetDefaultDatabasePath()
+        {
+            try
+            {
+                // Tentar obter o diretório de dados do usuário
+                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var defaultPath = Path.Combine(userProfile, "DashBird", "Databases");
+                
+                // Criar diretório se não existir
+                if (!Directory.Exists(defaultPath))
+                {
+                    Directory.CreateDirectory(defaultPath);
+                }
+                
+                return defaultPath;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Erro ao obter caminho padrão de database");
+                return Path.Combine(Environment.CurrentDirectory, "Databases");
+            }
         }
 
         /// <summary>
