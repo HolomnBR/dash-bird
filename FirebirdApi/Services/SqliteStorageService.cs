@@ -438,8 +438,8 @@ namespace FirebirdApi.Services
 
             try
             {
-                // Atualizar status para InProgress
-                await UpdateSnapshotProgressAsync(snapshotId, 0, "Iniciando...", "InProgress");
+                // Log de início sem update no banco
+                _logger.LogInformation("Iniciando geração de snapshot {SnapshotId} para database {DatabaseId}", snapshotId, databaseId);
 
                 var snapshot = new DatabaseSnapshot
                 {
@@ -464,13 +464,11 @@ namespace FirebirdApi.Services
 
                 int processedTables = 0;
 
+                // Processar tabelas sequencialmente para evitar sobrecarga do banco
                 foreach (var table in tables)
                 {
                     try
                     {
-                        // Atualizar progresso
-                        await UpdateSnapshotProgressAsync(snapshotId, processedTables, table.TableName, "InProgress");
-
                         var tableFullInfo = new TableFullInfo
                         {
                             TableName = table.TableName,
@@ -490,50 +488,70 @@ namespace FirebirdApi.Services
                             tableFullInfo.Columns = tableSchemas.First().Columns;
                         }
 
-                        // Contar quantidade de registros
+                        // Contar quantidade de registros com timeout
                         using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
                         await connection.OpenAsync();
                         
                         var countQuery = $"SELECT COUNT(*) FROM \"{table.TableName}\"";
                         using var countCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(countQuery, connection);
-                        var recordCount = await countCmd.ExecuteScalarAsync();
-                        if (recordCount != null && recordCount != DBNull.Value)
+                        countCmd.CommandTimeout = 30; // Timeout de 30 segundos
+                        
+                        try
                         {
-                            tableFullInfo.RecordCount = Convert.ToInt64(recordCount);
-                        }
-
-                        // Pegar o lastId (procurar por colunas de chave primária ou colunas ID)
-                        var pkColumns = await LoadPrimaryKeyColumnsAsync(connection, table.TableName);
-                        if (pkColumns.Any())
-                        {
-                            var pkColumn = pkColumns.First();
-                            var lastIdQuery = $"SELECT MAX(\"{pkColumn}\") FROM \"{table.TableName}\"";
-                            using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
-                            var lastId = await lastIdCmd.ExecuteScalarAsync();
-                            if (lastId != null && lastId != DBNull.Value)
+                            var recordCount = await countCmd.ExecuteScalarAsync();
+                            if (recordCount != null && recordCount != DBNull.Value)
                             {
-                                tableFullInfo.LastId = Convert.ToInt64(lastId);
+                                tableFullInfo.RecordCount = Convert.ToInt64(recordCount);
                             }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            var idColumns = tableFullInfo.Columns
-                                .Where(c => c.ColumnName.ToUpperInvariant().Contains("ID") || 
-                                          c.ColumnName.ToUpperInvariant().Contains("CODIGO") ||
-                                          c.ColumnName.ToUpperInvariant().Contains("COD"))
-                                .ToList();
-                            
-                            if (idColumns.Any())
+                            _logger.LogWarning(ex, "Erro ao contar registros da tabela {TableName}", table.TableName);
+                            tableFullInfo.RecordCount = 0; // Definir como 0 se não conseguir contar
+                        }
+
+                        // Pegar o lastId (procurar por colunas de chave primária ou colunas ID) com timeout
+                        try
+                        {
+                            var pkColumns = await LoadPrimaryKeyColumnsAsync(connection, table.TableName);
+                            if (pkColumns.Any())
                             {
-                                var idColumn = idColumns.First();
-                                var lastIdQuery = $"SELECT MAX(\"{idColumn.ColumnName}\") FROM \"{table.TableName}\"";
+                                var pkColumn = pkColumns.First();
+                                var lastIdQuery = $"SELECT MAX(\"{pkColumn}\") FROM \"{table.TableName}\"";
                                 using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
+                                lastIdCmd.CommandTimeout = 15; // Timeout de 15 segundos
                                 var lastId = await lastIdCmd.ExecuteScalarAsync();
                                 if (lastId != null && lastId != DBNull.Value)
                                 {
                                     tableFullInfo.LastId = Convert.ToInt64(lastId);
                                 }
                             }
+                            else
+                            {
+                                var idColumns = tableFullInfo.Columns
+                                    .Where(c => c.ColumnName.ToUpperInvariant().Contains("ID") || 
+                                              c.ColumnName.ToUpperInvariant().Contains("CODIGO") ||
+                                              c.ColumnName.ToUpperInvariant().Contains("COD"))
+                                    .ToList();
+                                
+                                if (idColumns.Any())
+                                {
+                                    var idColumn = idColumns.First();
+                                    var lastIdQuery = $"SELECT MAX(\"{idColumn.ColumnName}\") FROM \"{table.TableName}\"";
+                                    using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
+                                    lastIdCmd.CommandTimeout = 15; // Timeout de 15 segundos
+                                    var lastId = await lastIdCmd.ExecuteScalarAsync();
+                                    if (lastId != null && lastId != DBNull.Value)
+                                    {
+                                        tableFullInfo.LastId = Convert.ToInt64(lastId);
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Erro ao obter LastId da tabela {TableName}", table.TableName);
+                            tableFullInfo.LastId = null; // Definir como null se não conseguir obter
                         }
 
                         snapshot.Tables.Add(tableFullInfo);
@@ -613,8 +631,7 @@ namespace FirebirdApi.Services
             }
             catch (Exception ex)
             {
-                await UpdateSnapshotProgressAsync(snapshotId, 0, null, "Error", ex.Message);
-                _logger.LogError(ex, "Erro ao gerar snapshot da base de dados");
+                _logger.LogError(ex, "Erro ao gerar snapshot da base de dados {DatabaseId}", databaseId);
                 throw;
             }
         }
@@ -656,6 +673,11 @@ namespace FirebirdApi.Services
         {
             try
             {
+                _logger.LogInformation("Iniciando GetSnapshotsAsync para database {DatabaseId}", databaseId ?? "todas");
+                
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // Timeout de apenas 5 segundos
+                
+                // Consulta MUITO simplificada - apenas dados básicos do SQLite
                 var query = _context.DatabaseSnapshots
                     .Where(s => s.IsActive);
 
@@ -664,33 +686,49 @@ namespace FirebirdApi.Services
                     query = query.Where(s => s.DatabaseId == databaseId);
                 }
 
+                // Buscar apenas os snapshots mais recentes (últimos 5)
                 var snapshots = await query
                     .OrderByDescending(s => s.GeneratedAt)
-                    .ToListAsync();
+                    .Take(5) // Apenas 5 snapshots
+                    .Select(s => new { 
+                        s.Id, 
+                        s.DatabaseId, 
+                        s.DatabaseName, 
+                        s.GeneratedAt,
+                        s.Status
+                    })
+                    .ToListAsync(cts.Token);
 
+                _logger.LogInformation("Encontrados {Count} snapshots no banco", snapshots.Count);
+
+                // Retornar apenas os dados básicos do SQLite - SEM deserialização
                 var result = new List<DatabaseSnapshot>();
-
+                
                 foreach (var snapshot in snapshots)
                 {
-                    try
+                    var simpleSnapshot = new DatabaseSnapshot
                     {
-                        var snapshotData = JsonSerializer.Deserialize<DatabaseSnapshot>(snapshot.SnapshotData);
-                        if (snapshotData != null)
-                        {
-                            result.Add(snapshotData);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Erro ao deserializar snapshot {SnapshotId}", snapshot.Id);
-                    }
+                        Id = snapshot.Id,
+                        DatabaseId = snapshot.DatabaseId,
+                        DatabaseName = snapshot.DatabaseName,
+                        GeneratedAt = snapshot.GeneratedAt,
+                        Tables = new List<TableFullInfo>() // SEMPRE vazio - não carregar dados
+                    };
+                    
+                    result.Add(simpleSnapshot);
                 }
 
+                _logger.LogInformation("Retornados {Count} snapshots básicos para database {DatabaseId}", result.Count, databaseId ?? "todas");
                 return result;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Operação de obter snapshots foi cancelada por timeout");
+                return new List<DatabaseSnapshot>();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao obter snapshots");
+                _logger.LogError(ex, "Erro ao obter snapshots para database {DatabaseId}", databaseId ?? "todas");
                 return new List<DatabaseSnapshot>();
             }
         }
@@ -699,19 +737,58 @@ namespace FirebirdApi.Services
         {
             try
             {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Timeout de 10 segundos
+                
                 var snapshot = await _context.DatabaseSnapshots
-                    .FirstOrDefaultAsync(s => s.Id == snapshotId && s.IsActive);
+                    .FirstOrDefaultAsync(s => s.Id == snapshotId && s.IsActive, cts.Token);
 
                 if (snapshot != null)
                 {
-                    return JsonSerializer.Deserialize<DatabaseSnapshot>(snapshot.SnapshotData);
+                    // Verificar se SnapshotData não é nulo ou vazio
+                    if (string.IsNullOrWhiteSpace(snapshot.SnapshotData))
+                    {
+                        _logger.LogWarning("Snapshot {SnapshotId} tem SnapshotData vazio ou nulo", snapshot.Id);
+                        return null;
+                    }
+
+                    // Deserialização com timeout e configurações otimizadas
+                    try
+                    {
+                        var deserializedSnapshot = JsonSerializer.Deserialize<DatabaseSnapshot>(
+                            snapshot.SnapshotData,
+                            new JsonSerializerOptions 
+                            { 
+                                PropertyNameCaseInsensitive = true,
+                                ReadCommentHandling = JsonCommentHandling.Skip,
+                                MaxDepth = 32 // Limitar profundidade para evitar travamentos
+                            });
+
+                        // IMPORTANTE: Adicionar o ID do banco SQLite ao objeto deserializado
+                        // porque snapshots antigos podem não ter o ID no JSON
+                        if (deserializedSnapshot != null)
+                        {
+                            deserializedSnapshot.Id = snapshot.Id;
+                        }
+
+                        return deserializedSnapshot;
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogError(ex, "Erro na deserialização JSON do snapshot {SnapshotId}", snapshotId);
+                        return null;
+                    }
                 }
 
                 return null;
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Operação de obter snapshot por ID foi cancelada por timeout: {SnapshotId}", snapshotId);
+                return null;
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao obter snapshot por ID");
+                _logger.LogError(ex, "Erro ao obter snapshot por ID: {SnapshotId}", snapshotId);
                 return null;
             }
         }
@@ -738,6 +815,7 @@ namespace FirebirdApi.Services
                 return false;
             }
         }
+
 
         #endregion
 

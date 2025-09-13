@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using FirebirdApi.Protos;
+using FirebirdApi.Models;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Data;
@@ -482,7 +483,7 @@ namespace FirebirdApi.Services
 
                 foreach (var db in databases)
                 {
-                    var grpcDatabase = new DatabaseConfig
+                    var grpcDatabase = new FirebirdApi.Protos.DatabaseConfig
                     {
                         Id = db.Id,
                         Name = db.Name,
@@ -927,7 +928,7 @@ namespace FirebirdApi.Services
 
                 foreach (var db in databases)
                 {
-                    databaseSyncData.Databases.Add(new DatabaseConfig
+                    databaseSyncData.Databases.Add(new FirebirdApi.Protos.DatabaseConfig
                     {
                         Id = db.Id,
                         Name = db.Name,
@@ -1518,13 +1519,12 @@ namespace FirebirdApi.Services
                     RequestId = requestId
                 };
 
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromMinutes(5); // Timeout maior para snapshots grandes
-                
                 // Configurar SSL para desenvolvimento
                 var handler = new HttpClientHandler();
                 handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-                httpClient = new HttpClient(handler);
+                
+                using var httpClient = new HttpClient(handler);
+                httpClient.Timeout = TimeSpan.FromMinutes(5); // Timeout maior para snapshots grandes
 
                 var json = JsonSerializer.Serialize(snapshotRequest);
                 var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");

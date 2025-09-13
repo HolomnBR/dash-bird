@@ -8,12 +8,14 @@ namespace FirebirdApi.Services
     {
         private readonly LocalDbContext _context;
         private readonly ISystemInfoService _systemInfoService;
+        private readonly IDatabaseConfigService _databaseConfigService;
         private readonly ILogger<LocalNodeService> _logger;
 
-        public LocalNodeService(LocalDbContext context, ISystemInfoService systemInfoService, ILogger<LocalNodeService> logger)
+        public LocalNodeService(LocalDbContext context, ISystemInfoService systemInfoService, IDatabaseConfigService databaseConfigService, ILogger<LocalNodeService> logger)
         {
             _context = context;
             _systemInfoService = systemInfoService;
+            _databaseConfigService = databaseConfigService;
             _logger = logger;
         }
 
@@ -435,6 +437,44 @@ namespace FirebirdApi.Services
             var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(machineName + Environment.MachineName));
             var machineId = Convert.ToHexString(hash)[..16]; // Primeiros 16 caracteres
             return machineId.ToLower();
+        }
+
+        public async Task<DatabaseSnapshotResult> CreateDatabaseSnapshotAsync(string? databaseId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(databaseId))
+                {
+                    return new DatabaseSnapshotResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Database ID é obrigatório"
+                    };
+                }
+
+                // Gerar snapshot usando o DatabaseConfigService
+                var snapshot = await _databaseConfigService.GenerateDatabaseSnapshotAsync(databaseId);
+                
+                return new DatabaseSnapshotResult
+                {
+                    Success = true,
+                    DatabaseId = snapshot.DatabaseId,
+                    DatabaseName = snapshot.DatabaseName,
+                    TableCount = snapshot.Tables.Count,
+                    GeneratedAt = snapshot.GeneratedAt,
+                    SnapshotData = snapshot
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao criar snapshot da base {DatabaseId}", databaseId);
+                return new DatabaseSnapshotResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message,
+                    DatabaseId = databaseId ?? string.Empty
+                };
+            }
         }
     }
 }

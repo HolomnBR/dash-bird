@@ -63,5 +63,10 @@ namespace FirebirdApi.Services
         /// Garante que existe um nó local para a máquina atual
         /// </summary>
         Task<LocalNode> EnsureLocalNodeExistsAsync(string machineName, string? machineId = null);
+
+        /// <summary>
+        /// Criar snapshot de uma base de dados
+        /// </summary>
+        Task<DatabaseSnapshotResult> CreateDatabaseSnapshotAsync(string? databaseId);
     }
 }

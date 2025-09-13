@@ -49,9 +49,21 @@ namespace FirebirdApi.Models
 
 	public class DatabaseSnapshot
 	{
+		public string Id { get; set; } = string.Empty;
 		public string DatabaseId { get; set; } = string.Empty;
 		public string DatabaseName { get; set; } = string.Empty;
 		public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
 		public List<TableFullInfo> Tables { get; set; } = new List<TableFullInfo>();
+	}
+
+	public class DatabaseSnapshotResult
+	{
+		public bool Success { get; set; }
+		public object? SnapshotData { get; set; }
+		public string DatabaseId { get; set; } = string.Empty;
+		public string DatabaseName { get; set; } = string.Empty;
+		public int TableCount { get; set; }
+		public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+		public string? ErrorMessage { get; set; }
 	}
 }

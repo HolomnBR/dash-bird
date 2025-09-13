@@ -18,20 +18,39 @@ namespace FirebirdApi.Controllers
         }
 
         /// <summary>
-        /// Obter snapshots
+        /// Obter snapshots (versão simplificada - apenas metadados)
         /// </summary>
         [HttpGet("get-snapshots")]
-        public async Task<IActionResult> GetSnapshots([FromQuery] string? databaseId = null)
+        public async Task<IActionResult> GetSnapshots([FromQuery] string? databaseId = null, CancellationToken cancellationToken = default)
         {
             try
             {
+                _logger.LogInformation("Iniciando obtenção de snapshots para database {DatabaseId}", databaseId ?? "todas");
+                
+                // Usar o token de cancelamento do request
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(TimeSpan.FromSeconds(10)); // Timeout de apenas 10 segundos
+                
                 var snapshots = await _sqliteStorageService.GetSnapshotsAsync(databaseId);
-                return Ok(new { snapshots });
+                
+                _logger.LogInformation("Snapshots obtidos com sucesso: {Count} snapshots", snapshots.Count);
+                return Ok(new { 
+                    snapshots, 
+                    count = snapshots.Count,
+                    databaseId = databaseId,
+                    timestamp = DateTime.UtcNow,
+                    message = "Snapshots obtidos (versão simplificada - use get-snapshot/{id} para dados completos)"
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Operação de obter snapshots foi cancelada para database {DatabaseId}", databaseId ?? "todas");
+                return StatusCode(408, new { error = "Operação cancelada por timeout", databaseId });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao obter snapshots");
-                return StatusCode(500, new { error = "Erro interno do servidor" });
+                _logger.LogError(ex, "Erro ao obter snapshots para database {DatabaseId}", databaseId ?? "todas");
+                return StatusCode(500, new { error = "Erro interno do servidor", databaseId });
             }
         }
 

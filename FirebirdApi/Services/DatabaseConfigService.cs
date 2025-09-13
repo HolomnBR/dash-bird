@@ -2,9 +2,20 @@ using FirebirdApi.Models;
 using FirebirdApi.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace FirebirdApi.Services
 {
+    /// <summary>
+    /// Classe para armazenar informações em cache sobre contagens de tabelas
+    /// </summary>
+    public class CachedTableInfo
+    {
+        public long RecordCount { get; set; }
+        public long? LastId { get; set; }
+        public DateTime CachedAt { get; set; }
+    }
+
     public interface IDatabaseConfigService
     {
         Task<List<DatabaseConfig>> GetAllDatabasesAsync();
@@ -20,17 +31,26 @@ namespace FirebirdApi.Services
         Task<bool> SetDefaultDatabaseAsync(string id);
         Task<ProjectConfig> GetProjectConfigAsync();
         Task<bool> UpdateAllDatabaseFileSizesAsync();
+        void ClearRecordCountCache();
+        void ClearRecordCountCacheForDatabase(string databaseId);
     }
 
     public class DatabaseConfigService : IDatabaseConfigService
     {
         private readonly LocalDbContext _context;
         private readonly ILogger<DatabaseConfigService> _logger;
+        private readonly MemoryCache _recordCountCache;
+        private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5); // Cache por 5 minutos
 
         public DatabaseConfigService(LocalDbContext context, ILogger<DatabaseConfigService> logger)
         {
             _context = context;
             _logger = logger;
+            _recordCountCache = new MemoryCache(new MemoryCacheOptions
+            {
+                SizeLimit = 1000, // Máximo 1000 entradas no cache
+                CompactionPercentage = 0.25 // Remove 25% quando atinge o limite
+            });
         }
 
 
@@ -594,169 +614,46 @@ namespace FirebirdApi.Services
 
             try
             {
-                // Implementar geração de snapshot diretamente
+                _logger.LogInformation("Iniciando geração de snapshot para base: {DatabaseName}", database.Name);
+                
+                // FASE 1: Descoberta rápida do schema (tabelas e colunas)
+                var schemaStartTime = DateTime.UtcNow;
+                var tablesWithSchema = await DiscoverDatabaseSchemaAsync(database);
+                var schemaDuration = DateTime.UtcNow - schemaStartTime;
+                _logger.LogInformation("Fase 1 (Schema) concluída em {Duration}ms para {TableCount} tabelas", 
+                    schemaDuration.TotalMilliseconds, tablesWithSchema.Count);
+
+                // FASE 2: Contagem otimizada de registros (paralela)
+                var countStartTime = DateTime.UtcNow;
+                await PopulateRecordCountsAsync(database, tablesWithSchema);
+                var countDuration = DateTime.UtcNow - countStartTime;
+                _logger.LogInformation("Fase 2 (Contagem) concluída em {Duration}ms", countDuration.TotalMilliseconds);
+
+                // Criar snapshot final
                 var snapshot = new DatabaseSnapshot
                 {
                     DatabaseId = database.Id,
                     DatabaseName = database.Name,
                     GeneratedAt = DateTime.UtcNow,
-                    Tables = new List<TableFullInfo>()
-                };
-
-                // Listar todas as tabelas
-                var tables = await GetTablesAsync(id);
-                
-                foreach (var table in tables)
-                {
-                    var tableFullInfo = new TableFullInfo
+                    Tables = tablesWithSchema.Select(t => new TableFullInfo
                     {
-                        TableName = table.TableName,
-                        Schema = table.Schema,
-                        TableType = table.TableType,
-                        Description = table.Description,
-                        Columns = new List<ColumnSchema>(),
-                        RecordCount = 0,
-                        LastId = null,
+                        TableName = t.TableName,
+                        Schema = t.Schema,
+                        TableType = t.TableType,
+                        Description = t.Description,
+                        Columns = t.Columns,
+                        RecordCount = t.RecordCount,
+                        LastId = t.LastId,
                         GeneratedAt = DateTime.UtcNow
-                    };
-
-                    try
-                    {
-                        // Recuperar schema da tabela
-                        var tableSchemas = await GetTableSchemaAsync(id, new[] { table.TableName });
-                        if (tableSchemas.Any())
-                        {
-                            tableFullInfo.Columns = tableSchemas.First().Columns;
-                        }
-
-                        // Contar quantidade de registros
-                        using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
-                        await connection.OpenAsync();
-                        
-                        var countQuery = $"SELECT COUNT(*) FROM \"{table.TableName}\"";
-                        using var countCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(countQuery, connection);
-                        var recordCount = await countCmd.ExecuteScalarAsync();
-                        if (recordCount != null && recordCount != DBNull.Value)
-                        {
-                            tableFullInfo.RecordCount = Convert.ToInt64(recordCount);
-                        }
-
-                        // Pegar o lastId (procurar por colunas de chave primária ou colunas ID)
-                        var pkColumns = await LoadPrimaryKeyColumnsAsync(connection, table.TableName);
-                        if (pkColumns.Any())
-                        {
-                            // Se tem chave primária, usar a primeira coluna
-                            var pkColumn = pkColumns.First();
-                            var lastIdQuery = $"SELECT MAX(\"{pkColumn}\") FROM \"{table.TableName}\"";
-                            using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
-                            var lastId = await lastIdCmd.ExecuteScalarAsync();
-                            if (lastId != null && lastId != DBNull.Value)
-                            {
-                                tableFullInfo.LastId = Convert.ToInt64(lastId);
-                            }
-                        }
-                        else
-                        {
-                            // Se não tem chave primária, procurar por colunas que parecem ser ID
-                            var idColumns = tableFullInfo.Columns
-                                .Where(c => c.ColumnName.ToUpperInvariant().Contains("ID") || 
-                                          c.ColumnName.ToUpperInvariant().Contains("CODIGO") ||
-                                          c.ColumnName.ToUpperInvariant().Contains("COD"))
-                                .ToList();
-                            
-                            if (idColumns.Any())
-                            {
-                                var idColumn = idColumns.First();
-                                var lastIdQuery = $"SELECT MAX(\"{idColumn.ColumnName}\") FROM \"{table.TableName}\"";
-                                using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
-                                var lastId = await lastIdCmd.ExecuteScalarAsync();
-                                if (lastId != null && lastId != DBNull.Value)
-                                {
-                                    tableFullInfo.LastId = Convert.ToInt64(lastId);
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Log do erro mas continua com as outras tabelas
-                        Console.WriteLine($"Erro ao processar tabela {table.TableName}: {ex.Message}");
-                    }
-
-                    snapshot.Tables.Add(tableFullInfo);
-                }
+                    }).ToList()
+                };
 
                 // Salvar no SQLite
-                var snapshotId = Guid.NewGuid().ToString();
-                var snapshotData = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-
-                var sqliteSnapshot = new DatabaseSnapshotSqlite
-                {
-                    Id = snapshotId,
-                    DatabaseId = database.Id,
-                    DatabaseName = database.Name,
-                    GeneratedAt = DateTime.UtcNow,
-                    SnapshotData = snapshotData,
-                    IsActive = true
-                };
-
-                _context.DatabaseSnapshots.Add(sqliteSnapshot);
-
-                // Salvar tabelas e colunas
-                foreach (var table in snapshot.Tables)
-                {
-                    var snapshotTable = new SnapshotTable
-                    {
-                        SnapshotId = snapshotId,
-                        TableName = table.TableName,
-                        Schema = table.Schema,
-                        TableType = table.TableType,
-                        Description = table.Description,
-                        RecordCount = table.RecordCount,
-                        LastId = table.LastId,
-                        GeneratedAt = table.GeneratedAt
-                    };
-
-                    _context.SnapshotTables.Add(snapshotTable);
-
-                    foreach (var column in table.Columns)
-                    {
-                        var snapshotColumn = new SnapshotTableColumn
-                        {
-                            SnapshotId = snapshotId,
-                            TableName = table.TableName,
-                            ColumnName = column.ColumnName,
-                            DataType = column.DataType,
-                            Length = column.Length,
-                            Precision = column.Precision,
-                            Scale = column.Scale,
-                            IsNullable = column.IsNullable,
-                            DefaultValue = column.Default,
-                            Description = column.Description,
-                            IsPrimaryKey = column.IsPrimaryKey
-                        };
-
-                        _context.SnapshotTableColumns.Add(snapshotColumn);
-                    }
-                }
-
-                await _context.SaveChangesAsync();
-
-                // Manter compatibilidade com arquivo JSON
-                var snapshotDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "snapshots");
-                Directory.CreateDirectory(snapshotDir);
+                var snapshotId = await SaveSnapshotToDatabaseAsync(database, snapshot);
                 
-                var fileName = $"snapshot_{database.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
-                var filePath = Path.Combine(snapshotDir, fileName);
+                _logger.LogInformation("Snapshot gerado com sucesso: {SnapshotId} (Total: {TotalDuration}ms)", 
+                    snapshotId, (DateTime.UtcNow - schemaStartTime).TotalMilliseconds);
                 
-                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(filePath, json);
-
-                // Atualizar o caminho do arquivo no SQLite
-                sqliteSnapshot.FilePath = filePath;
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Snapshot gerado e salvo no SQLite: {SnapshotId}", snapshotId);
                 return snapshot;
             }
             catch (Exception ex)
@@ -764,6 +661,398 @@ namespace FirebirdApi.Services
                 _logger.LogError(ex, "Erro ao gerar snapshot da base de dados");
                 throw new InvalidOperationException($"Erro ao gerar snapshot da base de dados: {ex.Message}", ex);
             }
+        }
+
+        /// <summary>
+        /// FASE 1: Descoberta rápida do schema (tabelas e colunas) usando uma única conexão
+        /// </summary>
+        private async Task<List<TableFullInfo>> DiscoverDatabaseSchemaAsync(DatabaseConfig database)
+        {
+            var tables = new List<TableFullInfo>();
+            
+            using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+            await connection.OpenAsync();
+
+            // 1. Descobrir todas as tabelas
+            var tableQuery = @"
+                SELECT 
+                    r.rdb$relation_name as TableName,
+                    r.rdb$owner_name as Schema,
+                    r.rdb$relation_type as TableType,
+                    r.rdb$description as Description
+                FROM rdb$relations r
+                WHERE r.rdb$view_blr is null 
+                AND (r.rdb$system_flag is null or r.rdb$system_flag = 0)
+                ORDER BY r.rdb$relation_name";
+
+            using var tableCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(tableQuery, connection);
+            using var tableReader = await tableCmd.ExecuteReaderAsync();
+
+            var tableNames = new List<string>();
+            while (await tableReader.ReadAsync())
+            {
+                var tableName = tableReader["TableName"]?.ToString()?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(tableName))
+                {
+                    tableNames.Add(tableName);
+                    tables.Add(new TableFullInfo
+                    {
+                        TableName = tableName,
+                        Schema = tableReader["Schema"]?.ToString()?.Trim() ?? "",
+                        TableType = GetTableType(tableReader["TableType"]?.ToString() ?? ""),
+                        Description = tableReader["Description"]?.ToString()?.Trim() ?? "",
+                        Columns = new List<ColumnSchema>(),
+                        RecordCount = 0,
+                        LastId = null,
+                        GeneratedAt = DateTime.UtcNow
+                    });
+                }
+            }
+            tableReader.Close();
+
+            if (!tableNames.Any())
+                return tables;
+
+            // 2. Obter schema de todas as colunas de uma vez
+            var columnQuery = @"
+                SELECT
+                    rf.rdb$relation_name AS TableName,
+                    rf.rdb$field_name AS ColumnName,
+                    f.rdb$field_type AS FieldType,
+                    f.rdb$field_sub_type AS FieldSubType,
+                    f.rdb$field_length AS FieldLength,
+                    f.rdb$field_precision AS FieldPrecision,
+                    f.rdb$field_scale AS FieldScale,
+                    rf.rdb$null_flag AS NullFlag,
+                    rf.rdb$default_source AS DefaultSource,
+                    rf.rdb$description AS Description,
+                    rf.rdb$field_position AS FieldPosition
+                FROM rdb$relation_fields rf
+                JOIN rdb$fields f ON rf.rdb$field_source = f.rdb$field_name
+                WHERE rf.rdb$relation_name IN (" + string.Join(",", tableNames.Select(t => $"'{t}'")) + @")
+                ORDER BY rf.rdb$relation_name, rf.rdb$field_position";
+
+            using var columnCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(columnQuery, connection);
+            using var columnReader = await columnCmd.ExecuteReaderAsync();
+
+            var tableColumns = new Dictionary<string, List<ColumnSchema>>();
+            while (await columnReader.ReadAsync())
+            {
+                var tableName = columnReader["TableName"]?.ToString()?.Trim() ?? "";
+                if (string.IsNullOrEmpty(tableName)) continue;
+
+                if (!tableColumns.ContainsKey(tableName))
+                    tableColumns[tableName] = new List<ColumnSchema>();
+
+                var fieldType = columnReader["FieldType"] == DBNull.Value ? (int?)null : Convert.ToInt32(columnReader["FieldType"]);
+                var fieldSubType = columnReader["FieldSubType"] == DBNull.Value ? (int?)null : Convert.ToInt32(columnReader["FieldSubType"]);
+                var length = columnReader["FieldLength"] == DBNull.Value ? (int?)null : Convert.ToInt32(columnReader["FieldLength"]);
+                var precision = columnReader["FieldPrecision"] == DBNull.Value ? (int?)null : Convert.ToInt32(columnReader["FieldPrecision"]);
+                var scale = columnReader["FieldScale"] == DBNull.Value ? (int?)null : Convert.ToInt32(columnReader["FieldScale"]);
+
+                tableColumns[tableName].Add(new ColumnSchema
+                {
+                    ColumnName = columnReader["ColumnName"]?.ToString()?.Trim() ?? string.Empty,
+                    DataType = MapFieldType(fieldType, fieldSubType, precision, scale, length),
+                    Length = length,
+                    Precision = precision,
+                    Scale = scale,
+                    IsNullable = columnReader["NullFlag"] == DBNull.Value,
+                    Default = CleanDefaultSource(columnReader["DefaultSource"]?.ToString()),
+                    Description = columnReader["Description"]?.ToString()?.Trim() ?? string.Empty,
+                    IsPrimaryKey = false // Será definido na próxima query
+                });
+            }
+            columnReader.Close();
+
+            // 3. Obter chaves primárias de todas as tabelas de uma vez
+            var pkQuery = @"
+                SELECT 
+                    rc.rdb$relation_name AS TableName,
+                    seg.rdb$field_name AS ColumnName,
+                    seg.rdb$field_position AS FieldPosition
+                FROM rdb$relation_constraints rc
+                JOIN rdb$index_segments seg ON seg.rdb$index_name = rc.rdb$index_name
+                WHERE rc.rdb$relation_name IN (" + string.Join(",", tableNames.Select(t => $"'{t}'")) + @")
+                AND rc.rdb$constraint_type = 'PRIMARY KEY'
+                ORDER BY rc.rdb$relation_name, seg.rdb$field_position";
+
+            using var pkCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(pkQuery, connection);
+            using var pkReader = await pkCmd.ExecuteReaderAsync();
+
+            var tablePrimaryKeys = new Dictionary<string, HashSet<string>>();
+            while (await pkReader.ReadAsync())
+            {
+                var tableName = pkReader["TableName"]?.ToString()?.Trim() ?? "";
+                var columnName = pkReader["ColumnName"]?.ToString()?.Trim() ?? "";
+                
+                if (!string.IsNullOrEmpty(tableName) && !string.IsNullOrEmpty(columnName))
+                {
+                    if (!tablePrimaryKeys.ContainsKey(tableName))
+                        tablePrimaryKeys[tableName] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    
+                    tablePrimaryKeys[tableName].Add(columnName);
+                }
+            }
+            pkReader.Close();
+
+            // 4. Associar colunas às tabelas e marcar chaves primárias
+            foreach (var table in tables)
+            {
+                if (tableColumns.ContainsKey(table.TableName))
+                {
+                    table.Columns = tableColumns[table.TableName];
+                    
+                    // Marcar chaves primárias
+                    if (tablePrimaryKeys.ContainsKey(table.TableName))
+                    {
+                        var pkColumns = tablePrimaryKeys[table.TableName];
+                        foreach (var column in table.Columns)
+                        {
+                            column.IsPrimaryKey = pkColumns.Contains(column.ColumnName);
+                        }
+                    }
+                }
+            }
+
+            return tables;
+        }
+
+        /// <summary>
+        /// FASE 2: Contagem otimizada de registros usando processamento paralelo
+        /// </summary>
+        private async Task PopulateRecordCountsAsync(DatabaseConfig database, List<TableFullInfo> tables)
+        {
+            const int maxConcurrentConnections = 5; // Limitar conexões simultâneas
+            var semaphore = new SemaphoreSlim(maxConcurrentConnections);
+            
+            var tasks = tables.Select(async table =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    await PopulateTableRecordCountAsync(database, table);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+        }
+
+        /// <summary>
+        /// Conta registros de uma tabela específica de forma otimizada com cache
+        /// </summary>
+        private async Task PopulateTableRecordCountAsync(DatabaseConfig database, TableFullInfo table)
+        {
+            try
+            {
+                var cacheKey = $"{database.Id}:{table.TableName}";
+                
+                // 1. Verificar cache primeiro
+                if (_recordCountCache.TryGetValue(cacheKey, out CachedTableInfo? cachedInfo) && 
+                    cachedInfo != null && 
+                    DateTime.UtcNow - cachedInfo.CachedAt < _cacheExpiration)
+                {
+                    table.RecordCount = cachedInfo.RecordCount;
+                    table.LastId = cachedInfo.LastId;
+                    _logger.LogDebug("Cache hit para tabela {TableName}: {RecordCount} registros", 
+                        table.TableName, table.RecordCount);
+                    return;
+                }
+
+                using var connection = new FirebirdSql.Data.FirebirdClient.FbConnection(BuildConnectionString(database));
+                await connection.OpenAsync();
+
+                // 2. Contar registros (otimizado)
+                var countQuery = $"SELECT COUNT(*) FROM \"{table.TableName}\"";
+                using var countCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(countQuery, connection);
+                var recordCount = await countCmd.ExecuteScalarAsync();
+                if (recordCount != null && recordCount != DBNull.Value)
+                {
+                    table.RecordCount = Convert.ToInt64(recordCount);
+                }
+
+                // 3. Obter último ID apenas se a tabela tem registros e chave primária
+                if (table.RecordCount > 0)
+                {
+                    var pkColumn = table.Columns.FirstOrDefault(c => c.IsPrimaryKey);
+                    if (pkColumn == null)
+                    {
+                        // Procurar por colunas que parecem ser ID
+                        pkColumn = table.Columns.FirstOrDefault(c => 
+                            c.ColumnName.ToUpperInvariant().Contains("ID") || 
+                            c.ColumnName.ToUpperInvariant().Contains("CODIGO") ||
+                            c.ColumnName.ToUpperInvariant().Contains("COD"));
+                    }
+
+                    if (pkColumn != null)
+                    {
+                        var lastIdQuery = $"SELECT MAX(\"{pkColumn.ColumnName}\") FROM \"{table.TableName}\"";
+                        using var lastIdCmd = new FirebirdSql.Data.FirebirdClient.FbCommand(lastIdQuery, connection);
+                        var lastId = await lastIdCmd.ExecuteScalarAsync();
+                        if (lastId != null && lastId != DBNull.Value)
+                        {
+                            // Verificar se a coluna é numérica antes de converter
+                            if (IsNumericColumn(pkColumn.DataType))
+                            {
+                                try
+                                {
+                                    table.LastId = Convert.ToInt64(lastId);
+                                }
+                                catch (FormatException ex)
+                                {
+                                    _logger.LogWarning("Não foi possível converter o valor '{LastIdValue}' da coluna '{ColumnName}' (tipo: {DataType}) para Int64 na tabela '{TableName}': {ErrorMessage}", 
+                                        lastId, pkColumn.ColumnName, pkColumn.DataType, table.TableName, ex.Message);
+                                    // Não definir LastId para colunas não numéricas
+                                    table.LastId = null;
+                                }
+                            }
+                            else
+                            {
+                                _logger.LogDebug("Coluna '{ColumnName}' da tabela '{TableName}' não é numérica (tipo: {DataType}), pulando conversão para LastId", 
+                                    pkColumn.ColumnName, table.TableName, pkColumn.DataType);
+                                // Não definir LastId para colunas não numéricas
+                                table.LastId = null;
+                            }
+                        }
+                    }
+                }
+
+                // 4. Salvar no cache
+                var newCachedInfo = new CachedTableInfo
+                {
+                    RecordCount = table.RecordCount,
+                    LastId = table.LastId,
+                    CachedAt = DateTime.UtcNow
+                };
+                
+                _recordCountCache.Set(cacheKey, newCachedInfo, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = _cacheExpiration,
+                    Size = 1 // Cada entrada ocupa 1 unidade de tamanho
+                });
+
+                _logger.LogDebug("Cache miss para tabela {TableName}: {RecordCount} registros (salvo no cache)", 
+                    table.TableName, table.RecordCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Erro ao contar registros da tabela {TableName}: {Message}", 
+                    table.TableName, ex.Message);
+                // Continua com valores padrão (RecordCount = 0, LastId = null)
+            }
+        }
+
+        /// <summary>
+        /// Limpa o cache de contagens de registros
+        /// </summary>
+        public void ClearRecordCountCache()
+        {
+            _recordCountCache.Clear();
+            _logger.LogInformation("Cache de contagens de registros limpo");
+        }
+
+        /// <summary>
+        /// Limpa o cache de uma base de dados específica
+        /// </summary>
+        public void ClearRecordCountCacheForDatabase(string databaseId)
+        {
+            var keysToRemove = new List<string>();
+            
+            // Como não temos acesso direto às chaves, vamos usar uma abordagem diferente
+            // Em uma implementação real, você poderia manter um índice das chaves
+            _recordCountCache.Clear(); // Por simplicidade, limpa tudo
+            _logger.LogInformation("Cache de contagens limpo para base: {DatabaseId}", databaseId);
+        }
+
+        /// <summary>
+        /// Salva o snapshot no banco de dados SQLite
+        /// </summary>
+        private async Task<string> SaveSnapshotToDatabaseAsync(DatabaseConfig database, DatabaseSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                throw new ArgumentNullException(nameof(snapshot), "Snapshot não pode ser nulo");
+            }
+
+            var snapshotId = Guid.NewGuid().ToString();
+            var snapshotData = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+            
+            if (string.IsNullOrWhiteSpace(snapshotData))
+            {
+                throw new InvalidOperationException("Falha ao serializar snapshot - resultado vazio");
+            }
+
+            var sqliteSnapshot = new DatabaseSnapshotSqlite
+            {
+                Id = snapshotId,
+                DatabaseId = database.Id,
+                DatabaseName = database.Name,
+                GeneratedAt = DateTime.UtcNow,
+                SnapshotData = snapshotData,
+                IsActive = true
+            };
+
+            _context.DatabaseSnapshots.Add(sqliteSnapshot);
+
+            // Salvar tabelas e colunas
+            foreach (var table in snapshot.Tables)
+            {
+                var snapshotTable = new SnapshotTable
+                {
+                    SnapshotId = snapshotId,
+                    TableName = table.TableName,
+                    Schema = table.Schema,
+                    TableType = table.TableType,
+                    Description = table.Description,
+                    RecordCount = table.RecordCount,
+                    LastId = table.LastId,
+                    GeneratedAt = table.GeneratedAt
+                };
+
+                _context.SnapshotTables.Add(snapshotTable);
+
+                foreach (var column in table.Columns)
+                {
+                    var snapshotColumn = new SnapshotTableColumn
+                    {
+                        SnapshotId = snapshotId,
+                        TableName = table.TableName,
+                        ColumnName = column.ColumnName,
+                        DataType = column.DataType,
+                        Length = column.Length,
+                        Precision = column.Precision,
+                        Scale = column.Scale,
+                        IsNullable = column.IsNullable,
+                        DefaultValue = column.Default,
+                        Description = column.Description,
+                        IsPrimaryKey = column.IsPrimaryKey
+                    };
+
+                    _context.SnapshotTableColumns.Add(snapshotColumn);
+                }
+            }
+
+            await _context.SaveChangesAsync();
+
+            // Manter compatibilidade com arquivo JSON
+            var snapshotDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "snapshots");
+            Directory.CreateDirectory(snapshotDir);
+            
+            var fileName = $"snapshot_{database.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
+            var filePath = Path.Combine(snapshotDir, fileName);
+            
+            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(filePath, json);
+
+            // Atualizar o caminho do arquivo no SQLite
+            sqliteSnapshot.FilePath = filePath;
+            await _context.SaveChangesAsync();
+
+            return snapshotId;
         }
 
         private DatabaseConfig MapToDatabaseConfig(DatabaseConfigSqlite sqliteConfig)
@@ -806,6 +1095,25 @@ namespace FirebirdApi.Services
                 DesktopNodeId = config.DesktopNodeId,
                 UserId = config.UserId
             };
+        }
+
+        /// <summary>
+        /// Verifica se o tipo de dados da coluna é numérico
+        /// </summary>
+        private static bool IsNumericColumn(string dataType)
+        {
+            if (string.IsNullOrEmpty(dataType))
+                return false;
+
+            var numericTypes = new[]
+            {
+                "INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT",
+                "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "REAL",
+                "INT64", "INT32", "INT16", "INT8"
+            };
+
+            var upperDataType = dataType.ToUpperInvariant();
+            return numericTypes.Any(type => upperDataType.Contains(type));
         }
     }
 }
