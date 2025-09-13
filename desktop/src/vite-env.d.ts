@@ -42,6 +42,7 @@ declare interface Window {
       }
       error?: string
     }>
+    openExternal: (url: string) => Promise<void>
   }
   auth: {
     register: (userData: { name: string; email: string; password: string }) => Promise<{ success: boolean; data?: unknown; error?: string }>

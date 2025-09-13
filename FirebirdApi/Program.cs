@@ -151,6 +151,9 @@ builder.Services.AddSingleton<ICommandStreamService, CommandStreamService>();
 builder.Services.AddScoped<INodeRegistrationGrpcService, NodeRegistrationGrpcService>();
 builder.Services.AddHostedService<CommandStreamHostedService>();
 
+// Registrar o serviço de startup automático do streaming
+builder.Services.AddHostedService<StreamingStartupService>();
+
 // Registrar o serviço de nós locais
 builder.Services.AddScoped<ILocalNodeService, LocalNodeService>();
 

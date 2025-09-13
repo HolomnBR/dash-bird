@@ -434,10 +434,33 @@ namespace FirebirdApi.Services
                     var errorContent = await response.Content.ReadAsStringAsync();
                     _logger.LogWarning("Falha ao vincular nó atual ao usuário: {StatusCode} - {Error}", 
                         response.StatusCode, errorContent);
+                    
+                    // Tentar extrair a mensagem específica do erro do servidor cloud
+                    string errorMessage = $"Erro ao vincular nó: {response.StatusCode}";
+                    try
+                    {
+                        // Tentar extrair a propriedade 'message' do JSON de erro
+                        var errorObj = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(errorContent);
+                        if (errorObj != null && errorObj.ContainsKey("message"))
+                        {
+                            errorMessage = errorObj["message"].ToString();
+                            _logger.LogInformation("Mensagem de erro extraída do servidor cloud: {ErrorMessage}", errorMessage);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Não foi possível extrair a mensagem de erro do JSON: {ErrorContent}", errorContent);
+                        }
+                    }
+                    catch (Exception parseEx)
+                    {
+                        _logger.LogWarning(parseEx, "Erro ao fazer parse do JSON de erro: {ErrorContent}", errorContent);
+                        // Se não conseguir fazer parse do JSON, usar a mensagem padrão
+                    }
+                    
                     return new BindNodeToUserResponse
                     {
                         Success = false,
-                        Message = $"Erro ao vincular nó: {response.StatusCode}"
+                        Message = errorMessage
                     };
                 }
 
@@ -470,34 +493,30 @@ namespace FirebirdApi.Services
         {
             try
             {
-                _logger.LogInformation("Obtendo nós do usuário: {UserId}", userId);
+                _logger.LogInformation("Obtendo nó local do usuário: {UserId}", userId);
 
-                var token = await GetTokenFromContextAsync();
-                if (string.IsNullOrEmpty(token))
+                // Para o desktop, sempre retorna apenas o nó local atual
+                // Não precisa fazer requisição para o cloud
+                var machineId = _machineIdService.GetMachineId();
+                
+                var localNode = new
                 {
-                    _logger.LogError("Token não encontrado no contexto HTTP nem no armazenamento local");
-                    return new List<object>();
-                }
+                    id = machineId,
+                    machineId = machineId,
+                    name = Environment.MachineName,
+                    machineName = Environment.MachineName,
+                    isConnected = true,
+                    isLocal = true,
+                    userId = userId
+                };
 
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_cloudServerUrl}/api/User/nodes");
-                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-                var response = await _httpClient.SendAsync(request);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("Falha ao obter nós do usuário: {StatusCode} - {Error}", 
-                        response.StatusCode, errorContent);
-                    return new List<object>();
-                }
-
-                var result = await response.Content.ReadFromJsonAsync<List<object>>();
-                return result ?? new List<object>();
+                _logger.LogInformation("Retornando nó local: {MachineId} - {MachineName}", machineId, Environment.MachineName);
+                
+                return new List<object> { localNode };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao obter nós do usuário: {UserId}", userId);
+                _logger.LogError(ex, "Erro ao obter nó local do usuário: {UserId}", userId);
                 return new List<object>();
             }
         }

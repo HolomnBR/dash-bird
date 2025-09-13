@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FirebirdApi.Data;
 using FirebirdApi.Models;
 using Microsoft.EntityFrameworkCore;
@@ -8,21 +7,13 @@ namespace FirebirdApi.Services
     public class TokenStorageService : ITokenStorageService
     {
         private readonly ILogger<TokenStorageService> _logger;
-        private readonly IConfiguration _configuration;
         private readonly LocalDbContext _context;
-        private readonly string _tokenFilePath;
         private string? _cachedToken;
 
-        public TokenStorageService(ILogger<TokenStorageService> logger, IConfiguration configuration, LocalDbContext context)
+        public TokenStorageService(ILogger<TokenStorageService> logger, LocalDbContext context)
         {
             _logger = logger;
-            _configuration = configuration;
             _context = context;
-            
-            // Usar diretório de dados da aplicação
-            var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DashBird");
-            Directory.CreateDirectory(dataDir);
-            _tokenFilePath = Path.Combine(dataDir, "auth_token.json");
         }
 
         public async Task<string?> GetStoredTokenAsync()
@@ -35,47 +26,20 @@ namespace FirebirdApi.Services
                     return _cachedToken;
                 }
 
-                // Primeiro tentar SQLite
-                var sqliteToken = await _context.AuthTokens
+                // Buscar token ativo no SQLite
+                var token = await _context.AuthTokens
                     .Where(t => t.IsActive && t.ExpiresAt > DateTime.UtcNow)
                     .OrderByDescending(t => t.StoredAt)
+                    .Select(t => t.Token)
                     .FirstOrDefaultAsync();
 
-                if (sqliteToken != null)
+                if (token != null)
                 {
-                    _cachedToken = sqliteToken.Token;
+                    _cachedToken = token;
                     _logger.LogInformation("Token carregado do SQLite");
-                    return _cachedToken;
                 }
 
-                // Fallback para arquivo JSON (migração)
-                if (File.Exists(_tokenFilePath))
-                {
-                    var json = await File.ReadAllTextAsync(_tokenFilePath);
-                    var tokenData = JsonSerializer.Deserialize<TokenData>(json);
-                    
-                    if (tokenData != null && !string.IsNullOrEmpty(tokenData.Token))
-                    {
-                        // Verificar se o token não expirou
-                        if (tokenData.ExpiresAt > DateTime.UtcNow)
-                        {
-                            _cachedToken = tokenData.Token;
-                            _logger.LogInformation("Token carregado do arquivo JSON (migração)");
-                            
-                            // Migrar para SQLite
-                            await StoreTokenAsync(tokenData.Token);
-                            
-                            return _cachedToken;
-                        }
-                        else
-                        {
-                            _logger.LogInformation("Token expirado, removendo do armazenamento");
-                            await ClearTokenAsync();
-                        }
-                    }
-                }
-
-                return null;
+                return token;
             }
             catch (Exception ex)
             {
@@ -92,9 +56,9 @@ namespace FirebirdApi.Services
                 var expiresAt = GetTokenExpiration(token);
                 var (userId, userEmail) = GetTokenUserInfo(token);
 
-                // Desativar tokens anteriores
+                // Desativar tokens anteriores do mesmo usuário
                 await _context.AuthTokens
-                    .Where(t => t.IsActive)
+                    .Where(t => t.UserId == userId && t.IsActive)
                     .ExecuteUpdateAsync(t => t.SetProperty(x => x.IsActive, false));
 
                 // Criar novo token no SQLite
@@ -112,18 +76,7 @@ namespace FirebirdApi.Services
                 await _context.SaveChangesAsync();
                 
                 _cachedToken = token;
-                _logger.LogInformation("Token armazenado no SQLite até {ExpiresAt}", expiresAt);
-
-                // Manter compatibilidade com arquivo JSON (backup)
-                var tokenData = new TokenData
-                {
-                    Token = token,
-                    StoredAt = DateTime.UtcNow,
-                    ExpiresAt = expiresAt
-                };
-
-                var json = JsonSerializer.Serialize(tokenData, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(_tokenFilePath, json);
+                _logger.LogInformation("Token armazenado no SQLite para usuário: {UserId}", userId);
             }
             catch (Exception ex)
             {
@@ -143,12 +96,6 @@ namespace FirebirdApi.Services
                     .ExecuteUpdateAsync(t => t.SetProperty(x => x.IsActive, false));
 
                 await _context.SaveChangesAsync();
-                
-                // Remover arquivo JSON
-                if (File.Exists(_tokenFilePath))
-                {
-                    File.Delete(_tokenFilePath);
-                }
                 
                 _logger.LogInformation("Token removido do armazenamento local");
             }
@@ -206,11 +153,5 @@ namespace FirebirdApi.Services
             }
         }
 
-        private class TokenData
-        {
-            public string Token { get; set; } = string.Empty;
-            public DateTime StoredAt { get; set; }
-            public DateTime ExpiresAt { get; set; }
-        }
     }
 }

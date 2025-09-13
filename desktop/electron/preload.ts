@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('system', {
   async registerNode(databasePath?: string) {
     return await ipcRenderer.invoke('registerNode', databasePath)
   },
+  async openExternal(url: string) {
+    return await ipcRenderer.invoke('shell:openExternal', url)
+  },
 })
 
 contextBridge.exposeInMainWorld('auth', {
@@ -98,6 +101,7 @@ declare global {
       }>
       openFile: (filters?: Array<{ name: string; extensions: string[] }>) => Promise<string[]>
       registerNode: (databasePath?: string) => Promise<{ success: boolean; data?: any; error?: string }>
+      openExternal: (url: string) => Promise<void>
     }
     auth: {
       register: (userData: { name: string; email: string; password: string }) => Promise<{ success: boolean; data?: any; error?: string }>

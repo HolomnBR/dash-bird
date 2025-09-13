@@ -131,17 +131,37 @@ namespace FirebirdApi.Services
                 _logger.LogInformation("📡 Estabelecendo stream gRPC...");
                 _cancellationTokenSource = new CancellationTokenSource();
                 
-                try
+                // Tentar estabelecer stream com retry logic
+                const int maxStreamAttempts = 3;
+                const int streamRetryDelayMs = 2000;
+                
+                for (int attempt = 1; attempt <= maxStreamAttempts; attempt++)
                 {
-                    _logger.LogInformation("🔧 Chamando _client.CommandStream() com headers: {HeaderCount}", headers.Count);
-                    _stream = _client.CommandStream(headers: headers, cancellationToken: _cancellationTokenSource.Token);
-                    _logger.LogInformation("✅ Stream gRPC estabelecido com sucesso - Stream: {StreamStatus}", _stream != null ? "CRIADO" : "NULL");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "❌ ERRO ao estabelecer stream gRPC: {Error}", ex.Message);
-                    _logger.LogError("🔍 Detalhes do erro: {ErrorDetails}", ex.ToString());
-                    throw;
+                    try
+                    {
+                        _logger.LogInformation("🔧 Tentativa {Attempt}/{MaxAttempts} de estabelecer stream gRPC com headers: {HeaderCount}", 
+                            attempt, maxStreamAttempts, headers.Count);
+                        _stream = _client.CommandStream(headers: headers, cancellationToken: _cancellationTokenSource.Token);
+                        _logger.LogInformation("✅ Stream gRPC estabelecido com sucesso na tentativa {Attempt} - Stream: {StreamStatus}", 
+                            attempt, _stream != null ? "CRIADO" : "NULL");
+                        break; // Sucesso, sair do loop
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ ERRO na tentativa {Attempt}/{MaxAttempts} ao estabelecer stream gRPC: {Error}", 
+                            attempt, maxStreamAttempts, ex.Message);
+                        
+                        if (attempt < maxStreamAttempts)
+                        {
+                            _logger.LogInformation("⏳ Aguardando {Delay}ms antes da próxima tentativa...", streamRetryDelayMs);
+                            await Task.Delay(streamRetryDelayMs);
+                        }
+                        else
+                        {
+                            _logger.LogError("🔍 Detalhes do erro final: {ErrorDetails}", ex.ToString());
+                            throw; // Última tentativa falhou, relançar exceção
+                        }
+                    }
                 }
 
                 CurrentConnectionId = connectionId;
@@ -198,6 +218,19 @@ namespace FirebirdApi.Services
                 _logger.LogInformation("🔧 Criando Task.Run para ListenForCommandsAsync...");
                 _streamingTask = Task.Run(async () => await ListenForCommandsAsync(_cancellationTokenSource.Token));
                 _logger.LogInformation("✅ Task de escuta de comandos criada - Status: {TaskStatus}", _streamingTask?.Status ?? TaskStatus.Created);
+                
+                // Sincronizar databases automaticamente após streaming iniciado
+                _logger.LogInformation("🔄 Iniciando sincronização automática de databases após streaming iniciado...");
+                try
+                {
+                    await SyncDatabasesOnStreamingStartAsync();
+                    _logger.LogInformation("✅ Sincronização automática de databases concluída com sucesso");
+                }
+                catch (Exception syncEx)
+                {
+                    _logger.LogError(syncEx, "❌ Erro na sincronização automática de databases: {Error}", syncEx.Message);
+                    // Não falhar o streaming por causa de erro na sincronização
+                }
                 
                 var duration = DateTime.UtcNow - startTime;
                 _logger.LogInformation("🎉 Streaming gRPC iniciado com sucesso em {Duration}ms", duration.TotalMilliseconds);
@@ -463,7 +496,7 @@ namespace FirebirdApi.Services
                         LastSizeCheck = db.LastSizeCheck.HasValue ? ((DateTimeOffset)db.LastSizeCheck.Value).ToUnixTimeMilliseconds() : 0,
                         CreatedAt = ((DateTimeOffset)db.CreatedAt).ToUnixTimeMilliseconds(),
                         IsActive = db.IsActive,
-                        DesktopNodeId = CurrentConnectionId ?? string.Empty // Vincular database ao nó atual usando o ID real do nó
+                        DesktopNodeId = CurrentMachineId ?? string.Empty // Vincular database ao nó atual usando o MachineId
                     };
 
                     databaseSyncData.Databases.Add(grpcDatabase);
@@ -476,7 +509,7 @@ namespace FirebirdApi.Services
                 var message = new ClientToServerMessage
                 {
                     DatabaseSync = databaseSyncData,
-                    NodeId = CurrentConnectionId ?? string.Empty,
+                    NodeId = CurrentMachineId ?? string.Empty,
                     MachineId = CurrentMachineId ?? string.Empty,
                     Name = string.Empty,
                     MachineName = string.Empty,
@@ -488,8 +521,37 @@ namespace FirebirdApi.Services
                 // Verificar se o stream está disponível antes de escrever
                 if (_stream?.RequestStream != null)
                 {
-                    await _stream.RequestStream.WriteAsync(message);
-                    _logger.LogInformation("📤 Mensagem gRPC enviada com sucesso para {Count} databases", databases.Count);
+                    // Tentar enviar com retry logic
+                    const int maxSendAttempts = 3;
+                    const int sendRetryDelayMs = 1000;
+                    
+                    for (int attempt = 1; attempt <= maxSendAttempts; attempt++)
+                    {
+                        try
+                        {
+                            _logger.LogInformation("📤 Tentativa {Attempt}/{MaxAttempts} de envio de mensagem gRPC para {Count} databases", 
+                                attempt, maxSendAttempts, databases.Count);
+                            await _stream.RequestStream.WriteAsync(message);
+                            _logger.LogInformation("✅ Mensagem gRPC enviada com sucesso na tentativa {Attempt} para {Count} databases", 
+                                attempt, databases.Count);
+                            break; // Sucesso, sair do loop
+                        }
+                        catch (Exception sendEx)
+                        {
+                            _logger.LogError(sendEx, "❌ ERRO na tentativa {Attempt}/{MaxAttempts} ao enviar mensagem gRPC: {Error}", 
+                                attempt, maxSendAttempts, sendEx.Message);
+                            
+                            if (attempt < maxSendAttempts)
+                            {
+                                _logger.LogInformation("⏳ Aguardando {Delay}ms antes da próxima tentativa...", sendRetryDelayMs);
+                                await Task.Delay(sendRetryDelayMs);
+                            }
+                            else
+                            {
+                                throw; // Última tentativa falhou, relançar exceção
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -507,6 +569,79 @@ namespace FirebirdApi.Services
             {
                 _logger.LogError(ex, "❌ Erro ao enviar sincronização de databases via gRPC: {Error}", ex.Message);
                 throw; // Re-throw para que o SyncController possa capturar e tentar HTTP
+            }
+        }
+
+        /// <summary>
+        /// Sincroniza databases automaticamente quando o streaming inicia
+        /// </summary>
+        private async Task SyncDatabasesOnStreamingStartAsync()
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Iniciando sincronização automática de databases no streaming...");
+
+                using var scope = _serviceProvider.CreateScope();
+                var databaseConfigService = scope.ServiceProvider.GetRequiredService<IDatabaseConfigService>();
+                var systemInfoService = scope.ServiceProvider.GetRequiredService<ISystemInfoService>();
+
+                // Obter todas as databases locais
+                var databases = await databaseConfigService.GetAllDatabasesAsync();
+                
+                if (!databases.Any())
+                {
+                    _logger.LogInformation("ℹ️ Nenhuma database local encontrada para sincronizar");
+                    return;
+                }
+
+                _logger.LogInformation("📋 Encontradas {Count} databases locais para sincronizar", databases.Count);
+
+                // Atualizar tamanhos dos arquivos antes de enviar
+                await databaseConfigService.UpdateAllDatabaseFileSizesAsync();
+                _logger.LogInformation("📊 Tamanhos dos arquivos de database atualizados");
+
+                // Vincular databases ao nó atual se necessário
+                var machineId = CurrentMachineId ?? _machineIdService.GetMachineId();
+                await VinculateDatabasesToNodeAsync(databaseConfigService, machineId);
+
+                // Enviar via gRPC usando o método existente
+                await SendDatabaseSyncAsync("FULL_SYNC", "AUTO_SYNC_ON_STREAMING_START", databases);
+
+                _logger.LogInformation("✅ Sincronização automática de databases concluída: {Count} databases enviadas", databases.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro na sincronização automática de databases: {Error}", ex.Message);
+                throw; // Re-throw para que o método chamador possa capturar
+            }
+        }
+
+        /// <summary>
+        /// Vincula todas as databases locais ao nó especificado
+        /// </summary>
+        private async Task VinculateDatabasesToNodeAsync(IDatabaseConfigService databaseConfigService, string machineId)
+        {
+            try
+            {
+                var localDatabases = await databaseConfigService.GetAllDatabasesAsync();
+                
+                foreach (var database in localDatabases)
+                {
+                    // Atualizar apenas se não estiver vinculada a nenhum nó
+                    if (string.IsNullOrEmpty(database.DesktopNodeId))
+                    {
+                        database.DesktopNodeId = machineId;
+                        await databaseConfigService.UpdateDatabaseAsync(database);
+                        _logger.LogInformation("🔗 Database '{Name}' vinculada ao nó {MachineId}", database.Name, machineId);
+                    }
+                }
+                
+                _logger.LogInformation("✅ Todas as databases foram vinculadas ao nó {MachineId}", machineId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao vincular databases ao nó {MachineId}", machineId);
+                throw;
             }
         }
 
@@ -658,6 +793,9 @@ namespace FirebirdApi.Services
                     case "FIREBIRD_TEST_CONNECTION":
                         response = await TestFirebirdConnectionAsync(commandEvent);
                         break;
+                    case "CREATE_DATABASE_SNAPSHOT":
+                        response = await CreateDatabaseSnapshotAsync(commandEvent);
+                        break;
                     default:
                         response = new { error = "Comando não reconhecido", command = commandEvent.CommandText };
                         break;
@@ -803,7 +941,7 @@ namespace FirebirdApi.Services
                         LastSizeCheck = db.LastSizeCheck.HasValue ? ((DateTimeOffset)db.LastSizeCheck.Value).ToUnixTimeMilliseconds() : 0,
                         CreatedAt = ((DateTimeOffset)db.CreatedAt).ToUnixTimeMilliseconds(),
                         IsActive = db.IsActive,
-                        DesktopNodeId = CurrentConnectionId ?? string.Empty // Vincular database ao nó atual usando o ID real do nó
+                        DesktopNodeId = CurrentMachineId ?? string.Empty // Vincular database ao nó atual usando o MachineId
                     });
                 }
 
@@ -813,7 +951,7 @@ namespace FirebirdApi.Services
                     await _stream.RequestStream.WriteAsync(new ClientToServerMessage
                     {
                         DatabaseSync = databaseSyncData,
-                        NodeId = CurrentConnectionId ?? string.Empty,
+                        NodeId = CurrentMachineId ?? string.Empty,
                         MachineId = CurrentMachineId ?? string.Empty,
                         Name = string.Empty,
                         MachineName = string.Empty,
@@ -871,8 +1009,13 @@ namespace FirebirdApi.Services
                     if (authHeader != null && authHeader.StartsWith("Bearer "))
                     {
                         var token = authHeader.Substring("Bearer ".Length).Trim();
-                        // Armazenar o token para uso futuro
-                        await tokenStorageService.StoreTokenAsync(token);
+                        // Verificar se o token já está armazenado antes de armazenar novamente
+                        var existingToken = await tokenStorageService.GetStoredTokenAsync();
+                        if (existingToken != token)
+                        {
+                            _logger.LogInformation("Token diferente encontrado no header, atualizando armazenamento local");
+                            await tokenStorageService.StoreTokenAsync(token);
+                        }
                         return token;
                     }
                 }
@@ -959,7 +1102,7 @@ namespace FirebirdApi.Services
                 var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
 
                 // Usar a nova estrutura de metadados estruturada
-                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata ?? string.Empty);
                 
                 var command = new FirebirdCommand
                 {
@@ -1004,7 +1147,7 @@ namespace FirebirdApi.Services
                 var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
 
                 // Usar a nova estrutura de metadados estruturada
-                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata ?? string.Empty);
                 var query = metadata.Sql ?? "";
 
                 var result = await firebirdCommandService.ExecuteQueryAsync(query, metadata.DatabaseId);
@@ -1043,7 +1186,7 @@ namespace FirebirdApi.Services
                 var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
 
                 // Usar a nova estrutura de metadados estruturada
-                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata ?? string.Empty);
 
                 var result = await firebirdCommandService.ListTablesAsync(metadata.DatabaseId);
 
@@ -1080,7 +1223,7 @@ namespace FirebirdApi.Services
                 var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
 
                 // Usar a nova estrutura de metadados estruturada
-                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata ?? string.Empty);
                 var tableName = metadata.TableName ?? "";
 
                 if (string.IsNullOrEmpty(tableName))
@@ -1131,7 +1274,7 @@ namespace FirebirdApi.Services
                 var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
 
                 // Usar a nova estrutura de metadados estruturada
-                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata ?? string.Empty);
 
                 var info = await firebirdCommandService.GetDatabaseInfoAsync(metadata.DatabaseId);
 
@@ -1174,7 +1317,7 @@ namespace FirebirdApi.Services
                 var firebirdCommandService = scope.ServiceProvider.GetRequiredService<IFirebirdCommandService>();
 
                 // Usar a nova estrutura de metadados estruturada
-                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata);
+                var metadata = FirebirdCommandMetadata.FromJson(commandEvent.Metadata ?? string.Empty);
 
                 var status = await firebirdCommandService.TestConnectionAsync(metadata.DatabaseId);
 
@@ -1282,6 +1425,130 @@ namespace FirebirdApi.Services
         }
 
         #endregion
+
+        private async Task<object> CreateDatabaseSnapshotAsync(CommandReceivedEventArgs commandEvent)
+        {
+            try
+            {
+                _logger.LogInformation("Processando solicitação de criação de snapshot: {CommandId}", commandEvent.CommandId);
+
+                using var scope = _serviceProvider.CreateScope();
+                var localNodeService = scope.ServiceProvider.GetRequiredService<ILocalNodeService>();
+                
+                // Parse dos parâmetros do comando (se houver)
+                var parameters = new Dictionary<string, string>();
+                if (!string.IsNullOrEmpty(commandEvent.Metadata))
+                {
+                    try
+                    {
+                        var metadataDict = JsonSerializer.Deserialize<Dictionary<string, string>>(commandEvent.Metadata);
+                        if (metadataDict != null)
+                        {
+                            parameters = metadataDict;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Erro ao parsear metadata do comando: {Metadata}", commandEvent.Metadata);
+                    }
+                }
+
+                // Obter requestId e databaseId dos parâmetros
+                var requestId = parameters.GetValueOrDefault("requestId");
+                var databaseId = parameters.GetValueOrDefault("databaseId");
+                
+                // Criar snapshot usando o LocalNodeService
+                var snapshotResult = await localNodeService.CreateDatabaseSnapshotAsync(databaseId);
+                
+                if (snapshotResult.Success && snapshotResult.SnapshotData != null)
+                {
+                    _logger.LogInformation("Snapshot criado com sucesso: {DatabaseId}, {TableCount} tabelas", 
+                        snapshotResult.DatabaseId, snapshotResult.TableCount);
+
+                    // Enviar snapshot para o server via HTTP
+                    await SendSnapshotToServerAsync(snapshotResult, requestId);
+
+                    return new
+                    {
+                        success = true,
+                        databaseId = snapshotResult.DatabaseId,
+                        databaseName = snapshotResult.DatabaseName,
+                        tableCount = snapshotResult.TableCount,
+                        generatedAt = snapshotResult.GeneratedAt,
+                        snapshotData = snapshotResult.SnapshotData,
+                        timestamp = DateTime.UtcNow
+                    };
+                }
+                else
+                {
+                    _logger.LogWarning("Falha ao criar snapshot: {Error}", snapshotResult.ErrorMessage);
+                    return new
+                    {
+                        success = false,
+                        error = snapshotResult.ErrorMessage ?? "Erro desconhecido ao criar snapshot",
+                        timestamp = DateTime.UtcNow
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao processar solicitação de criação de snapshot");
+                return new
+                {
+                    success = false,
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                };
+            }
+        }
+
+        private async Task SendSnapshotToServerAsync(DatabaseSnapshotResult snapshotResult, string? requestId = null)
+        {
+            try
+            {
+                var cloudServerUrl = _configuration["GrpcServer:Url"] ?? _configuration["CloudServer:Url"] ?? "https://localhost:7001";
+                var apiBaseUrl = cloudServerUrl.Replace(":7001", ":5001"); // Converter gRPC URL para HTTP API URL
+                
+                var snapshotRequest = new
+                {
+                    DatabaseConfigId = snapshotResult.DatabaseId,
+                    SnapshotData = snapshotResult.SnapshotData,
+                    NodeId = CurrentMachineId,
+                    MachineId = CurrentMachineId,
+                    RequestId = requestId
+                };
+
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromMinutes(5); // Timeout maior para snapshots grandes
+                
+                // Configurar SSL para desenvolvimento
+                var handler = new HttpClientHandler();
+                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                httpClient = new HttpClient(handler);
+
+                var json = JsonSerializer.Serialize(snapshotRequest);
+                var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+                var response = await httpClient.PostAsync($"{apiBaseUrl}/api/snapshot/from-client", content);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogInformation("Snapshot enviado com sucesso para o server: {DatabaseId}", snapshotResult.DatabaseId);
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Falha ao enviar snapshot para o server: {StatusCode} - {Error}", 
+                        response.StatusCode, errorContent);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao enviar snapshot para o server: {DatabaseId}", snapshotResult.DatabaseId);
+            }
+        }
+
 
         public async Task TryReconnectWithStoredTokenAsync()
         {

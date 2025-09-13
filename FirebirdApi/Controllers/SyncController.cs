@@ -164,10 +164,18 @@ namespace FirebirdApi.Controllers
                     if (isNodeRegistered)
                     {
                         _logger.LogInformation("✅ Nó confirmado como registrado no servidor cloud");
+                        
+                        // Aguardar mais tempo para garantir que o registro esteja completamente processado no servidor
+                        _logger.LogInformation("⏳ Aguardando 5 segundos para garantir que o registro esteja completamente processado no servidor...");
+                        await Task.Delay(5000);
                     }
                     else
                     {
                         _logger.LogWarning("⚠️ Nó pode não estar completamente registrado no servidor cloud, mas continuando...");
+                        
+                        // Aguardar um pouco mais mesmo se não confirmado, para dar tempo ao servidor processar
+                        _logger.LogInformation("⏳ Aguardando 3 segundos adicionais para dar tempo ao servidor processar o registro...");
+                        await Task.Delay(3000);
                     }
                     
                     // 5. Sincronizar databases automaticamente após registro do nó
@@ -1889,47 +1897,8 @@ namespace FirebirdApi.Controllers
                 // Fallback para HTTP se gRPC não estiver disponível
                 _logger.LogInformation("Enviando database via HTTP: {DatabaseName} -> {CloudUrl}", databaseConfig.Name, cloudServerUrl);
 
-
-
-                // Obter informações do sistema
-                var operatingSystem = _systemInfoService.GetOperatingSystem();
-                var systemVersion = _systemInfoService.GetSystemVersion();
-
-                var request = new
-                {
-                    DesktopNodeId = machineId,
-                    Name = databaseConfig.Name,
-                    Server = databaseConfig.Server,
-                    Database = databaseConfig.Database,
-                    User = databaseConfig.Username,
-                    Password = databaseConfig.Password,
-                    Port = databaseConfig.Port,
-                    Charset = databaseConfig.Charset,
-                    FileSizeBytes = databaseConfig.FileSizeBytes,
-                    LastSizeCheck = databaseConfig.LastSizeCheck,
-                    OperatingSystem = operatingSystem,
-                    SystemVersion = systemVersion,
-                    SyncReason = "DATABASE_CREATED"
-                };
-
-                var response = await _httpClient.PostAsJsonAsync(
-                    $"{cloudServerUrl}/api/DatabaseConfig/register-database", 
-                    request
-                );
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var result = await response.Content.ReadFromJsonAsync<object>();
-                    _logger.LogInformation("✅ Database enviada para o cloud via HTTP com sucesso: {DatabaseName} (Tamanho: {FileSize})", 
-                        databaseConfig.Name, 
-                        databaseConfig.FileSizeBytes.HasValue ? FormatFileSize(databaseConfig.FileSizeBytes.Value) : "N/A");
-                }
-                else
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("⚠️ Falha ao enviar database para o cloud via HTTP: {StatusCode} - {Error}", 
-                        response.StatusCode, errorContent);
-                }
+                // Tentar enviar via HTTP com retry logic
+                await SendDatabaseToCloudViaHttpWithRetryAsync(databaseConfig, machineId, cloudServerUrl);
             }
             catch (HttpRequestException ex)
             {
@@ -1961,6 +1930,127 @@ namespace FirebirdApi.Controllers
                 len = len / 1024;
             }
             return $"{len:0.##} {sizes[order]}";
+        }
+
+        /// <summary>
+        /// Envia uma database para o cloud via HTTP com retry logic robusta
+        /// </summary>
+        private async Task SendDatabaseToCloudViaHttpWithRetryAsync(Models.DatabaseConfig databaseConfig, string machineId, string cloudServerUrl)
+        {
+            const int maxRetries = 3;
+            const int baseDelayMs = 2000; // 2 segundos base
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    _logger.LogInformation("🔄 Tentativa {Attempt}/{MaxRetries} de envio via HTTP: {DatabaseName}", 
+                        attempt, maxRetries, databaseConfig.Name);
+
+                    // Obter informações do sistema
+                    var operatingSystem = _systemInfoService.GetOperatingSystem();
+                    var systemVersion = _systemInfoService.GetSystemVersion();
+
+                    var request = new
+                    {
+                        DesktopNodeId = machineId,
+                        Name = databaseConfig.Name,
+                        Server = databaseConfig.Server,
+                        Database = databaseConfig.Database,
+                        User = databaseConfig.Username,
+                        Password = databaseConfig.Password,
+                        Port = databaseConfig.Port,
+                        Charset = databaseConfig.Charset,
+                        FileSizeBytes = databaseConfig.FileSizeBytes,
+                        LastSizeCheck = databaseConfig.LastSizeCheck,
+                        OperatingSystem = operatingSystem,
+                        SystemVersion = systemVersion,
+                        SyncReason = "DATABASE_CREATED"
+                    };
+
+                    var response = await _httpClient.PostAsJsonAsync(
+                        $"{cloudServerUrl}/api/DatabaseConfig/register-database", 
+                        request
+                    );
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var result = await response.Content.ReadFromJsonAsync<object>();
+                        _logger.LogInformation("✅ Database enviada para o cloud via HTTP com sucesso: {DatabaseName} (Tamanho: {FileSize})", 
+                            databaseConfig.Name, 
+                            databaseConfig.FileSizeBytes.HasValue ? FormatFileSize(databaseConfig.FileSizeBytes.Value) : "N/A");
+                        return; // Sucesso, sair do loop
+                    }
+                    else
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        _logger.LogWarning("⚠️ Falha ao enviar database para o cloud via HTTP (tentativa {Attempt}): {StatusCode} - {Error}", 
+                            attempt, response.StatusCode, errorContent);
+
+                        // Se for erro 400 (Bad Request) e contém "nó desktop não encontrado", aguardar mais tempo
+                        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest && 
+                            errorContent.Contains("nó desktop não encontrado"))
+                        {
+                            if (attempt < maxRetries)
+                            {
+                                var delay = baseDelayMs * attempt; // Delay progressivo: 2s, 4s, 6s
+                                _logger.LogInformation("⏳ Nó desktop não encontrado, aguardando {Delay}ms antes da próxima tentativa...", delay);
+                                await Task.Delay(delay);
+                                continue;
+                            }
+                        }
+                        else if (attempt < maxRetries)
+                        {
+                            var delay = baseDelayMs; // Delay fixo para outros erros
+                            _logger.LogInformation("⏳ Aguardando {Delay}ms antes da próxima tentativa...", delay);
+                            await Task.Delay(delay);
+                            continue;
+                        }
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    _logger.LogWarning("⚠️ Erro de conexão HTTP (tentativa {Attempt}): {DatabaseName} - {Error}", 
+                        attempt, databaseConfig.Name, ex.Message);
+                    
+                    if (attempt < maxRetries)
+                    {
+                        var delay = baseDelayMs * attempt;
+                        _logger.LogInformation("⏳ Aguardando {Delay}ms antes da próxima tentativa...", delay);
+                        await Task.Delay(delay);
+                        continue;
+                    }
+                }
+                catch (TaskCanceledException ex)
+                {
+                    _logger.LogWarning("⚠️ Timeout HTTP (tentativa {Attempt}): {DatabaseName} - {Error}", 
+                        attempt, databaseConfig.Name, ex.Message);
+                    
+                    if (attempt < maxRetries)
+                    {
+                        var delay = baseDelayMs * attempt;
+                        _logger.LogInformation("⏳ Aguardando {Delay}ms antes da próxima tentativa...", delay);
+                        await Task.Delay(delay);
+                        continue;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Erro inesperado HTTP (tentativa {Attempt}): {DatabaseName}", 
+                        attempt, databaseConfig.Name);
+                    
+                    if (attempt < maxRetries)
+                    {
+                        var delay = baseDelayMs * attempt;
+                        _logger.LogInformation("⏳ Aguardando {Delay}ms antes da próxima tentativa...", delay);
+                        await Task.Delay(delay);
+                        continue;
+                    }
+                }
+            }
+
+            _logger.LogError("❌ Falha definitiva ao enviar database via HTTP após {MaxRetries} tentativas: {DatabaseName}", 
+                maxRetries, databaseConfig.Name);
         }
     }
 

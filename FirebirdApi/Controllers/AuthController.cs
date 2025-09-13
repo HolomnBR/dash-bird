@@ -47,16 +47,18 @@ namespace FirebirdApi.Controllers
                     await _tokenStorageService.StoreTokenAsync(result.Token);
                     _logger.LogInformation("Token armazenado localmente após registro do usuário: {Email}", request.Email);
                     
-                    // Tentar reconectar o CommandStreamService com o novo token
+                    // Iniciar streaming automaticamente após registro bem-sucedido
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await _commandStreamService.TryReconnectWithStoredTokenAsync();
+                            _logger.LogInformation("🚀 Iniciando streaming automático após registro...");
+                            await StartStreamingAfterAuthenticationAsync();
+                            _logger.LogInformation("✅ Streaming automático iniciado com sucesso após registro");
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Erro ao tentar reconectar CommandStreamService após registro");
+                            _logger.LogError(ex, "❌ Erro ao iniciar streaming automático após registro: {Error}", ex.Message);
                         }
                     });
                 }
@@ -102,16 +104,18 @@ namespace FirebirdApi.Controllers
                     await _tokenStorageService.StoreTokenAsync(result.Token);
                     _logger.LogInformation("Token armazenado localmente após login do usuário: {Email}", request.Email);
                     
-                    // Tentar reconectar o CommandStreamService com o novo token
+                    // Iniciar streaming automaticamente após login bem-sucedido
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await _commandStreamService.TryReconnectWithStoredTokenAsync();
+                            _logger.LogInformation("🚀 Iniciando streaming automático após login...");
+                            await StartStreamingAfterAuthenticationAsync();
+                            _logger.LogInformation("✅ Streaming automático iniciado com sucesso após login");
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Erro ao tentar reconectar CommandStreamService após login");
+                            _logger.LogError(ex, "❌ Erro ao iniciar streaming automático após login: {Error}", ex.Message);
                         }
                     });
                 }
@@ -370,6 +374,21 @@ namespace FirebirdApi.Controllers
                 {
                     return BadRequest(result);
                 }
+
+                // Iniciar streaming automaticamente após bind bem-sucedido
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        _logger.LogInformation("🚀 Iniciando streaming automático após bind node...");
+                        await StartStreamingAfterAuthenticationAsync();
+                        _logger.LogInformation("✅ Streaming automático iniciado com sucesso após bind node");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Erro ao iniciar streaming automático após bind node: {Error}", ex.Message);
+                    }
+                });
 
                 return Ok(result);
             }
@@ -630,6 +649,77 @@ namespace FirebirdApi.Controllers
             {
                 _logger.LogError(ex, "Erro ao tentar reconectar gRPC");
                 return StatusCode(500, new { message = "Erro interno do servidor" });
+            }
+        }
+
+        /// <summary>
+        /// Inicia o streaming automaticamente após autenticação bem-sucedida
+        /// </summary>
+        private async Task StartStreamingAfterAuthenticationAsync()
+        {
+            try
+            {
+                // Verificar se já está conectado
+                if (_commandStreamService.IsConnected)
+                {
+                    _logger.LogInformation("Streaming já está conectado, não é necessário reiniciar");
+                    return;
+                }
+
+                // Obter informações do nó local
+                using var scope = HttpContext.RequestServices.CreateScope();
+                var localNodeService = scope.ServiceProvider.GetRequiredService<ILocalNodeService>();
+                var systemInfoService = scope.ServiceProvider.GetRequiredService<ISystemInfoService>();
+                var machineIdService = scope.ServiceProvider.GetRequiredService<IMachineIdService>();
+
+                // Obter MachineId
+                var machineId = machineIdService.GetMachineId();
+                if (string.IsNullOrEmpty(machineId))
+                {
+                    _logger.LogWarning("⚠️ MachineId não disponível para iniciar streaming");
+                    return;
+                }
+
+                // Obter informações do nó local
+                var localNode = await localNodeService.GetLocalNodeByMachineIdAsync(machineId);
+                if (localNode == null)
+                {
+                    _logger.LogWarning("⚠️ Nó local não encontrado para MachineId: {MachineId}", machineId);
+                    return;
+                }
+
+                // Obter token armazenado
+                var authToken = await _tokenStorageService.GetStoredTokenAsync();
+                if (string.IsNullOrEmpty(authToken))
+                {
+                    _logger.LogWarning("⚠️ Token de autenticação não disponível para iniciar streaming");
+                    return;
+                }
+
+                // Gerar connectionId único
+                var connectionId = Guid.NewGuid().ToString();
+
+                _logger.LogInformation("🚀 Iniciando streaming com dados: MachineId={MachineId}, ConnectionId={ConnectionId}, NodeId={NodeId}", 
+                    machineId, connectionId, localNode.Id);
+
+                // Iniciar streaming
+                await _commandStreamService.StartStreamingAsync(
+                    connectionId: connectionId,
+                    machineId: machineId,
+                    authToken: authToken,
+                    nodeId: localNode.Id,
+                    name: localNode.MachineName,
+                    machineName: localNode.MachineName,
+                    version: systemInfoService.GetSystemVersion(),
+                    operatingSystem: systemInfoService.GetOperatingSystem()
+                );
+
+                _logger.LogInformation("✅ Streaming iniciado com sucesso após autenticação");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao iniciar streaming após autenticação: {Error}", ex.Message);
+                throw;
             }
         }
 

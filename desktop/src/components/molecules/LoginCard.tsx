@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { Button } from '../atoms/Button'
 
@@ -33,6 +32,14 @@ export const LoginCard: React.FC = () => {
     setEmail('')
     setPassword('')
     setError(null)
+  }
+
+  const handleRegisterClick = async () => {
+    try {
+      await window.system.openExternal('https://dashbird-clould.holomn.com.br/register')
+    } catch (error) {
+      console.error('Erro ao abrir link de registro:', error)
+    }
   }
 
   if (isAuthenticated && user) {
@@ -118,12 +125,12 @@ export const LoginCard: React.FC = () => {
       </form>
 
       <div className="mt-4 text-center">
-        <Link
-          to="/register"
-          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+        <button
+          onClick={handleRegisterClick}
+          className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer bg-transparent border-none p-0 underline"
         >
           Não tem uma conta? Registre-se
-        </Link>
+        </button>
       </div>
 
       <div className="mt-4 text-xs text-gray-500 text-center">

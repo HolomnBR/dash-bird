@@ -405,6 +405,27 @@ namespace FirebirdApi.Services
             }
         }
 
+        public async Task<List<LocalNode>> GetUserNodesAsync(string userId)
+        {
+            try
+            {
+                _logger.LogInformation("Buscando nós locais do usuário: {UserId}", userId);
+
+                var userNodes = await _context.LocalNodes
+                    .Where(n => n.UserId == userId && n.IsActive)
+                    .OrderBy(n => n.MachineName)
+                    .ToListAsync();
+
+                _logger.LogInformation("Encontrados {Count} nós locais para o usuário {UserId}", userNodes.Count, userId);
+                return userNodes;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao buscar nós locais do usuário: {UserId}", userId);
+                return new List<LocalNode>();
+            }
+        }
+
         /// <summary>
         /// Gera um MachineId único baseado no nome da máquina
         /// </summary>

@@ -236,7 +236,29 @@ export const useAuth = () => {
       })
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        // Se a resposta não é OK, tentar extrair a mensagem de erro específica
+        const result = await response.json()
+        console.log('🔍 Resposta de erro da API bind-current-node:', result)
+        
+        // Extrair a mensagem de erro de forma mais robusta
+        let errorMessage = `Erro HTTP ${response.status}`
+        
+        if (result.message) {
+          errorMessage = result.message
+        } else if (result.error) {
+          errorMessage = result.error
+        } else if (typeof result === 'string') {
+          errorMessage = result
+        }
+        
+        console.error('❌ Erro da API:', errorMessage)
+        console.error('❌ Resultado completo da API:', result)
+        
+        return { 
+          success: false, 
+          error: errorMessage,
+          data: result
+        }
       }
       
       const result = await response.json()
@@ -249,6 +271,10 @@ export const useAuth = () => {
       }
     } catch (error) {
       console.error('Erro ao conectar nó atual:', error)
+      // Verificar se é um erro de rede ou de parsing JSON
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        return { success: false, error: 'Erro de conexão com a API local - verifique se a API está rodando' }
+      }
       return { success: false, error: 'Erro de conexão com a API local' }
     }
   }, [])

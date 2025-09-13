@@ -805,6 +805,10 @@ ipcMain.handle('dialog:openFile', async (_event, options?: { filters?: Array<{ n
   return result.canceled ? [] : result.filePaths
 })
 
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  await shell.openExternal(url)
+})
+
 // API Management handlers
 ipcMain.handle('api:getStatus', async () => {
   return apiManager.getStatus()

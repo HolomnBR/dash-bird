@@ -108,7 +108,7 @@ export function NodeManager() {
       // Se for verificação forçada (botão clicado), mostrar loading
       if (forceServerCheck) {
         setCheckingConnection(true)
-        setError(null)
+        // Não limpar erro aqui - apenas quando for uma nova tentativa de conectar
       }
 
       // Se não for verificação forçada, verificar primeiro no localStorage
@@ -352,7 +352,13 @@ export function NodeManager() {
         setIsNodeConnected(true)
         setConnectedNodeId(nodeData.nodeId)
       } else {
-        setError(result.error || 'Erro ao conectar nó')
+        // Exibir o erro específico retornado pela API
+        const errorMessage = result.error || 'Erro ao conectar nó'
+        console.error('❌ Erro específico da API:', errorMessage)
+        console.error('❌ Resultado completo:', result)
+        console.error('❌ Tipo do erro:', typeof errorMessage)
+        console.error('❌ Conteúdo do erro:', JSON.stringify(result))
+        setError(errorMessage)
       }
     } catch (error) {
       console.error('Erro ao conectar nó:', error)
@@ -612,8 +618,41 @@ export function NodeManager() {
 
         {/* Mensagem de Erro */}
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded text-sm">
-            {error}
+          <div className={`px-4 py-3 rounded-lg text-sm border-l-4 ${
+            error.includes('já está vinculado') || error.includes('Nó já está vinculado') || error.includes('outro usuário')
+              ? 'bg-orange-50 border-orange-400 text-orange-800'
+              : error.includes('conexão') || error.includes('API')
+              ? 'bg-red-50 border-red-400 text-red-800'
+              : 'bg-red-50 border-red-400 text-red-800'
+          }`}>
+            <div className="flex items-start gap-3">
+              <span className="text-xl flex-shrink-0 mt-0.5">
+                {error.includes('já está vinculado') || error.includes('Nó já está vinculado') || error.includes('outro usuário') ? '⚠️' : '❌'}
+              </span>
+              <div className="flex-1">
+                <div className="font-semibold mb-1">
+                  {error.includes('já está vinculado') || error.includes('Nó já está vinculado') || error.includes('outro usuário')
+                    ? 'Nó já vinculado a outra conta' 
+                    : 'Erro de conexão'}
+                </div>
+                <div className="text-sm leading-relaxed">
+                  {error.includes('já está vinculado') || error.includes('Nó já está vinculado') || error.includes('outro usuário')
+                    ? 'Este nó já está conectado a outra conta de usuário. Para conectar este nó à sua conta, você precisará primeiro desconectá-lo da conta anterior.'
+                    : error}
+                </div>
+                {(error.includes('já está vinculado') || error.includes('Nó já está vinculado') || error.includes('outro usuário')) && (
+                  <div className="mt-3 p-2 bg-orange-100 rounded text-xs text-orange-700">
+                    <strong>Solução:</strong> Entre em contato com o suporte técnico para obter ajuda na transferência do nó para sua conta.
+                  </div>
+                )}
+                <button
+                  onClick={() => setError(null)}
+                  className="mt-2 text-xs text-gray-500 hover:text-gray-700 underline"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
