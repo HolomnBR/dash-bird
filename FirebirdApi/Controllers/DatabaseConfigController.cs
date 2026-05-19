@@ -291,10 +291,10 @@ namespace FirebirdApi.Controllers
 		}
 
 		/// <summary>
-		/// Gera um snapshot completo da base de dados com todas as tabelas, schemas, contadores e lastIds
+		/// Gera um snapshot completo da base de dados (redirecionado para SnapshotController)
 		/// </summary>
 		[HttpPost("databases/{id}/generate-snapshot")]
-		[SwaggerOperation(Summary = "Gerar snapshot da base", Description = "Gera um snapshot completo com todas as tabelas, schemas, contadores de registros e lastIds. Salva localmente em JSON.")]
+		[SwaggerOperation(Summary = "Gerar snapshot da base", Description = "Inicia a geração de snapshot em background. Use o SnapshotController para verificar status.")]
 		[ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
 		[ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
 		[ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -313,12 +313,8 @@ namespace FirebirdApi.Controllers
 					return NotFound(new { success = false, message = "Base de dados não encontrada" });
 				}
 
-				var snapshot = await _configService.GenerateDatabaseSnapshotAsync(id);
-				return Ok(new { 
-					success = true, 
-					data = snapshot, 
-					message = $"Snapshot gerado com sucesso e salvo localmente. Total de tabelas processadas: {snapshot.Tables.Count}" 
-				});
+				// Redirecionar para o SnapshotController
+				return RedirectToAction("GenerateSnapshot", "Snapshot", new { databaseId = id });
 			}
 			catch (Exception ex)
 			{
